@@ -1,10 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC, PanoramaApi } from '../shared/ipc'
-import { AppSettings } from '../shared/types'
+import { SettingsPatch } from '../shared/types'
 
 const api: PanoramaApi = {
   getSettings: () => ipcRenderer.invoke(IPC.getSettings),
-  setSettings: (patch: Partial<AppSettings>) =>
+  setSettings: (patch: SettingsPatch) =>
     ipcRenderer.invoke(IPC.setSettings, patch),
   resetSettings: () => ipcRenderer.invoke(IPC.resetSettings),
   getDisplayInfo: () => ipcRenderer.invoke(IPC.getDisplayInfo),

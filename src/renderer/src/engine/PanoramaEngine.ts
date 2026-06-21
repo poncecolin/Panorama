@@ -1,4 +1,5 @@
 import { AppSettings, EyePose, TrackingState, Vec3 } from '@shared/types'
+import { activeCalibration } from '@shared/settings'
 import { GeometryConfig, GeometrySolver } from '@core/geometry/GeometrySolver'
 import { computeApproachDolly } from '@core/geometry/dolly'
 import { ThreeRenderer } from '@core/render/ThreeRenderer'
@@ -37,10 +38,11 @@ function dist(a: Vec3, b: Vec3): number {
 }
 
 function toGeometryConfig(s: AppSettings): GeometryConfig {
+  const cal = activeCalibration(s)
   return {
     intrinsics: s.intrinsics,
-    placement: s.placement,
-    screen: s.screen,
+    placement: cal.placement,
+    screen: cal.screen,
     viewer: s.viewer,
     tuning: s.tuning
   }
@@ -103,7 +105,8 @@ export class PanoramaEngine {
 
   async start(canvas: HTMLCanvasElement, scene: ThreeScene): Promise<void> {
     this.renderer.init(canvas)
-    this.renderer.setScreen(this.settings.screen.widthMm, this.settings.screen.heightMm)
+    const cal = activeCalibration(this.settings)
+    this.renderer.setScreen(cal.screen.widthMm, cal.screen.heightMm)
     this.resize(canvas)
     await this.renderer.loadScene(scene)
     this.scene = scene
@@ -133,7 +136,8 @@ export class PanoramaEngine {
   updateSettings(settings: AppSettings): void {
     this.settings = settings
     this.solver.setConfig(toGeometryConfig(settings))
-    this.renderer.setScreen(settings.screen.widthMm, settings.screen.heightMm)
+    const cal = activeCalibration(settings)
+    this.renderer.setScreen(cal.screen.widthMm, cal.screen.heightMm)
     this.scene?.setWindowHeightMm?.(settings.tuning.windowHeightMm)
   }
 

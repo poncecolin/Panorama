@@ -80,9 +80,51 @@ export interface ScreenGeometry {
   heightMm: number
 }
 
+/** Which calibration profile is active. Phase 2 ships two; the map can grow. */
+export type ProfileKey = 'laptop' | 'tv'
+
+/**
+ * One calibrated setup: how big the glass is and where the camera sits relative
+ * to it. Phase 1 only ever used the built-in laptop setup; Phase 2 adds a TV
+ * setup where the camera (still the laptop's) is offset from the display. The
+ * pair (placement + screen) is exactly what the GeometrySolver needs. Kept as a
+ * standalone profile so more profiles (per-display, arbitrary placement) can be
+ * added later without reshaping the solver or the engine.
+ */
+export interface CalibrationProfile {
+  placement: CameraPlacement
+  screen: ScreenGeometry
+  /** Electron display id this profile drives (TV mode). Informational only. */
+  displayId?: number | null
+}
+
 /** Average human interpupillary distance assumptions (millimetres). */
 export interface ViewerCalibration {
   ipdMm: number
+}
+
+/** A screen edge a calibration probe marker can be tangent to. */
+export type ScreenEdge = 'left' | 'right' | 'top' | 'bottom'
+
+/**
+ * A calibration probe: a marker placed behind the glass that grazes `edge` at a
+ * known eye plane. Screen-space mm (z < 0 = behind the glass). Plain data so it
+ * can be sent to the reference scene and across the window boundary (Phase 2).
+ */
+export interface ProbeMarker {
+  id: string
+  position: Vec3
+  edge: ScreenEdge
+  /** Marker color hint (hex), e.g. 0xff3b3b for the classic "red cube". */
+  color?: number
+}
+
+/** What the calibration reference scene should currently display. */
+export interface CalibrationSceneState {
+  /** Show the center symmetry grid (the head-on alignment cue). */
+  showGrid: boolean
+  /** Active probe markers for the current wizard step. */
+  markers: ProbeMarker[]
 }
 
 /** Defaults that make the illusion work with zero setup. */
@@ -95,7 +137,17 @@ export const DEFAULTS = {
   /** Camera assumed centered this far above the top edge of the screen (mm). */
   cameraAboveTopEdgeMm: 8,
   nearPlaneMm: 50,
-  farPlaneMm: 100000
+  farPlaneMm: 100000,
+  /**
+   * Seed values for a fresh "TV mode" profile (Phase 2), refined by the TV
+   * calibration wizard. A 55" 16:9 set with the laptop sitting below it: camera
+   * ~350 mm below the TV center and ~100 mm forward of the screen plane.
+   */
+  tvDiagonalInches: 55,
+  tvAspectW: 16,
+  tvAspectH: 9,
+  tvCameraBelowCenterMm: 350,
+  tvCameraForwardMm: 100
 } as const
 
 /**
@@ -181,16 +233,34 @@ export const DEFAULT_TUNING: TuningParams = {
 
 /** Everything persisted to disk via electron-store. */
 export interface AppSettings {
+  /** The physical camera lens — the same in every mode (it's one laptop camera). */
   intrinsics: CameraIntrinsics
-  placement: CameraPlacement
-  screen: ScreenGeometry
+  /** Viewer IPD — independent of which display is driven. */
   viewer: ViewerCalibration
   tuning: TuningParams
+  /** Calibrated setups, keyed by mode. The engine reads the active one. */
+  profiles: Record<ProfileKey, CalibrationProfile>
+  /** Which profile is live ('laptop' built-in vs 'tv' over HDMI). Manual switch. */
+  activeProfile: ProfileKey
   activeSceneId: string
   audioEnabled: boolean
   audioVolume: number
   /** Whether the optional calibration wizard has been completed. */
   calibrated: boolean
+}
+
+/**
+ * A partial update to AppSettings. Unlike `Partial<AppSettings>`, this allows a
+ * *partial* profile patch (e.g. nudging just the TV placement) and tolerates the
+ * legacy top-level `placement`/`screen` keys a Phase-1 store may still hold, so
+ * `mergeSettings` can migrate them. Nested objects are merged one level deep.
+ */
+export type SettingsPatch = Partial<Omit<AppSettings, 'profiles'>> & {
+  profiles?: Partial<Record<ProfileKey, Partial<CalibrationProfile>>>
+  /** @deprecated Phase-1 top-level fields, folded into `profiles.laptop` on merge. */
+  placement?: CameraPlacement
+  /** @deprecated Phase-1 top-level fields, folded into `profiles.laptop` on merge. */
+  screen?: ScreenGeometry
 }
 
 /** Camera/display facts the main process can detect from the OS. */

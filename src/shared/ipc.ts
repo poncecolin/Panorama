@@ -2,7 +2,7 @@
  * IPC contract between the Electron main process and the renderer.
  * Channel names live here so both sides stay in sync.
  */
-import type { AppSettings, DisplayInfo } from './types'
+import type { AppSettings, DisplayInfo, SettingsPatch } from './types'
 
 export const IPC = {
   getSettings: 'settings:get',
@@ -17,7 +17,7 @@ export const IPC = {
 export interface PanoramaApi {
   getSettings(): Promise<AppSettings>
   /** Partial update; returns the merged, persisted settings. */
-  setSettings(patch: Partial<AppSettings>): Promise<AppSettings>
+  setSettings(patch: SettingsPatch): Promise<AppSettings>
   resetSettings(): Promise<AppSettings>
   getDisplayInfo(): Promise<DisplayInfo>
   toggleFullscreen(): Promise<boolean>

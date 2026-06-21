@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { Vec3 } from '@shared/types'
+import { CalibrationSceneState, Vec3 } from '@shared/types'
 
 /** What a scene receives to build itself. Coordinates are in millimetres; the
  *  screen ("glass") is the rectangle of size screen.* centered at the origin in
@@ -39,5 +39,11 @@ export interface ThreeScene {
    * by the lifecycle controller when omitted.
    */
   attractEye?(elapsedMs: number): AttractSample
+  /**
+   * Calibration-only: update which probe markers / grid the reference scene shows.
+   * Implemented by the `calib` scene; ignored by content scenes. Driven by the TV
+   * calibration wizard so it can step the viewer through the probe sequence.
+   */
+  setCalibrationState?(state: CalibrationSceneState): void
   dispose(): void
 }

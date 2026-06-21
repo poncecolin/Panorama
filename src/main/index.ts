@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, screen, session } from 'electron'
 import { join } from 'path'
 import Store from 'electron-store'
 import { IPC } from '../shared/ipc'
-import { AppSettings, DisplayInfo } from '../shared/types'
+import { AppSettings, DisplayInfo, SettingsPatch } from '../shared/types'
 import { makeDefaultSettings, mergeSettings } from '../shared/settings'
 
 let mainWindow: BrowserWindow | null = null
@@ -63,7 +63,7 @@ function createWindow(): void {
 function registerIpc(): void {
   ipcMain.handle(IPC.getSettings, () => loadSettings())
 
-  ipcMain.handle(IPC.setSettings, (_e, patch: Partial<AppSettings>) => {
+  ipcMain.handle(IPC.setSettings, (_e, patch: SettingsPatch) => {
     const merged = mergeSettings(loadSettings(), patch)
     store.set('settings', merged)
     return merged
