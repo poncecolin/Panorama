@@ -79,6 +79,31 @@ export function grazingMarker(
 }
 
 /**
+ * Recover camera pitch (degrees) from "depth-pair" captures. The viewer keeps the
+ * same eye HEIGHT and only changes depth (steps toward / away from the TV), so the
+ * screen-space eye Y is constant. With yaw = roll = 0,
+ *   E.y = cos(p)·camY − sin(p)·camZ + cy = const
+ * ⇒ camY = tan(p)·camZ + const. So the camera-frame samples (camZ, camY) lie on a
+ * line whose slope is tan(pitch); least-squares fit it. This needs only easy moves
+ * (no crouching, no vertical edge probes) and is independent of the measured
+ * vertical offset cy and of lateral position. Needs ≥2 captures at distinct depths.
+ */
+export function solvePitchFromCenteredCaptures(camEyes: Vec3[]): number {
+  const n = camEyes.length
+  if (n < 2) return 0
+  const meanZ = camEyes.reduce((s, e) => s + e.z, 0) / n
+  const meanY = camEyes.reduce((s, e) => s + e.y, 0) / n
+  let varZ = 0
+  let covZY = 0
+  for (const e of camEyes) {
+    varZ += (e.z - meanZ) * (e.z - meanZ)
+    covZY += (e.z - meanZ) * (e.y - meanY)
+  }
+  if (varZ / n < 1) return 0 // depths varied < ~1 mm → undetermined
+  return (Math.atan(covZY / varZ) * 180) / Math.PI
+}
+
+/**
  * Where a marker projects onto the screen plane (z = 0) as seen from the eye.
  * Intersect the eye→marker ray with z = 0. The marker is behind the glass
  * (marker.z < 0) and the eye in front (eye.z > 0), so the hit is between them.

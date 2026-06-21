@@ -131,10 +131,15 @@ aren't jarring.
   cross-window IPC: `settings:changed` (sync, so fine-tune previews live on the TV),
   `engine:status` (scene→control stream), `scene:command` (drives the `calib` scene). The TV
   **calibration math is pure**: `cameraModel.ts` (shared camera↔screen mapping, used by both the
-  solver and the calibrator so they can't drift) + `tvCalibration.ts` (`solvePlacement`,
-  damped Gauss–Newton recovering the camera placement from "viewer-as-probe" edge-graze
-  observations). The wizard is `settings/TvCalibrationWizard.tsx`; the reference scene is
-  `scenes/calib/CalibScene.ts`.
+  solver and the calibrator so they can't drift) + `tvCalibration.ts`. After on-device testing
+  the wizard (`settings/TvCalibrationWizard.tsx`) **measures** TV size + camera below/forward
+  (inches) and **solves only the camera tilt** via `solvePitchFromCenteredCaptures` (camera-frame
+  `y`-vs-`z` slope = `tan(pitch)` from easy near/step-back captures — edge-graze probes were too
+  hard to reach on a big TV). `solvePlacement` (damped Gauss–Newton over a configurable `free`
+  DoF set, from edge-graze observations) stays for future arbitrary placement. Reference scene:
+  `scenes/calib/CalibScene.ts` (static, non-animated markers — calibration needs a stable edge).
+  **Distance tracking:** TV mode captures at 1280×720 with looser MediaPipe floors (0.3) and
+  derives the geometry aspect from the actual stream; laptop mode keeps the validated 640×480.
 
 ## Layout
 

@@ -64,6 +64,8 @@ export class PanoramaEngine {
   private settings: AppSettings
 
   /** Latest solved eye (the raw follow target). */
+  /** Actual capture dimensions, used to keep the geometry aspect ratio correct. */
+  private videoSize: { width: number; height: number } | null = null
   private targetEye: Vec3 | null = null
   /** Eye actually shown — eased toward targetEye; glides (not snaps) on re-acquire. */
   private displayEye: Vec3 | null = null
@@ -86,7 +88,24 @@ export class PanoramaEngine {
 
   constructor(settings: AppSettings) {
     this.settings = settings
-    this.solver = new GeometrySolver(toGeometryConfig(settings))
+    this.solver = new GeometrySolver(this.geoConfig())
+  }
+
+  /**
+   * Geometry config for the active profile, with the camera aspect ratio taken
+   * from the ACTUAL capture size once known (TV mode may capture 16:9 while the
+   * stored intrinsics default to 4:3 — using real dims keeps vertical mapping right).
+   */
+  private geoConfig(): GeometryConfig {
+    const cfg = toGeometryConfig(this.settings)
+    if (this.videoSize) {
+      cfg.intrinsics = {
+        ...cfg.intrinsics,
+        frameWidth: this.videoSize.width,
+        frameHeight: this.videoSize.height
+      }
+    }
+    return cfg
   }
 
   onStatus(cb: StatusCallback): () => void {
@@ -117,10 +136,28 @@ export class PanoramaEngine {
     this.loop()
 
     // Start tracking; on failure (no camera / denied) stay in attract mode.
-    this.tracker = new MediaPipeFaceTracker({ targetFps: 30 })
+    // TV mode views from across the room, so capture at higher resolution and
+    // loosen detection floors to keep a small/dim distant face; laptop mode keeps
+    // the validated 640×480 / 0.5 defaults (close range, already reliable).
+    const tvMode = this.settings.activeProfile === 'tv'
+    this.tracker = new MediaPipeFaceTracker(
+      tvMode
+        ? {
+            targetFps: 30,
+            width: 1280,
+            height: 720,
+            minDetectionConfidence: 0.3,
+            minPresenceConfidence: 0.3,
+            minTrackingConfidence: 0.3
+          }
+        : { targetFps: 30 }
+    )
     this.unsubTracker = this.tracker.onFrame((f) => this.onTrackerFrame(f))
     try {
       await this.tracker.start()
+      // Lock geometry to the real capture aspect ratio now the stream is live.
+      this.videoSize = this.tracker.getVideoSize()
+      if (this.videoSize) this.solver.setConfig(this.geoConfig())
     } catch (err) {
       this.cameraError = err instanceof Error ? err.message : String(err)
     }
@@ -140,7 +177,7 @@ export class PanoramaEngine {
 
   updateSettings(settings: AppSettings): void {
     this.settings = settings
-    this.solver.setConfig(toGeometryConfig(settings))
+    this.solver.setConfig(this.geoConfig())
     const cal = activeCalibration(settings)
     this.renderer.setScreen(cal.screen.widthMm, cal.screen.heightMm)
     this.scene?.setWindowHeightMm?.(settings.tuning.windowHeightMm)

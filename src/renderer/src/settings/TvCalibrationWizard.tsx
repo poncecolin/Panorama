@@ -2,15 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import {
   AppSettings,
   DisplayDescriptor,
-  ProbeMarker,
-  ScreenEdge,
   SettingsPatch,
   Vec3,
   ViewerSample
 } from '@shared/types'
 import { screenMmFromDiagonal } from '@shared/calibration'
 import { cameraFrameEye } from '@core/geometry/cameraModel'
-import { ProbeObservation, grazingMarker, solvePlacement } from '@core/geometry/tvCalibration'
+import { solvePitchFromCenteredCaptures } from '@core/geometry/tvCalibration'
 import { EngineStatus } from '../engine/PanoramaEngine'
 import { hasBridge } from '../state/useSettings'
 
@@ -21,26 +19,22 @@ interface Props {
   onClose: () => void
 }
 
-const STEP_TITLES = ['Display', 'TV size', 'Rough placement', 'Look around', 'Fine-tune']
+const STEP_TITLES = ['Display', 'TV size', 'Camera position', 'Camera tilt', 'Fine-tune']
 
-/** The probe sequence. Two depths on top/bottom separate pitch from vertical offset. */
-const PROBES: { edge: ScreenEdge; depthMm: number; color: number; label: string }[] = [
-  { edge: 'right', depthMm: -700, color: 0xff3b3b, label: 'red' },
-  { edge: 'left', depthMm: -700, color: 0x3bff7a, label: 'green' },
-  { edge: 'top', depthMm: -500, color: 0x4fa8ff, label: 'blue' },
-  { edge: 'bottom', depthMm: -500, color: 0xffd23b, label: 'yellow' },
-  { edge: 'top', depthMm: -1600, color: 0x4fa8ff, label: 'blue' },
-  { edge: 'bottom', depthMm: -1600, color: 0xffd23b, label: 'yellow' }
-]
-
-/** Nominal viewer eye (screen frame) the probe markers are laid out for. */
-const NOMINAL_EYE: Vec3 = { x: 0, y: 0, z: 1500 }
+/** Millimetres per inch — the wizard talks to the user in inches, stores mm. */
+const IN_MM = 25.4
 
 const median = (xs: number[]): number => {
   const s = [...xs].sort((a, b) => a - b)
   return s[Math.floor(s.length / 2)]
 }
 
+/**
+ * TV calibration: measure what's easy (TV size + where the camera sits, in inches),
+ * then solve the one thing that's hard to eyeball — the camera's upward tilt — from
+ * a couple of "stand near / step back" captures (see solvePitchFromCenteredCaptures).
+ * A final fine-tune nudges any residual while the TV updates live.
+ */
 export function TvCalibrationWizard({ settings, status, onUpdate, onClose }: Props) {
   const tv = settings.profiles.tv
   const tvActive = settings.activeProfile === 'tv'
@@ -49,28 +43,16 @@ export function TvCalibrationWizard({ settings, status, onUpdate, onClose }: Pro
   const [displays, setDisplays] = useState<DisplayDescriptor[]>([])
   const [displayId, setDisplayId] = useState<number | null>(tv.displayId ?? null)
   const [diagonalIn, setDiagonalIn] = useState('55')
-  const [dropCm, setDropCm] = useState(35)
-  const [forwardCm, setForwardCm] = useState(10)
-  const [probeIndex, setProbeIndex] = useState(0)
-  const [observations, setObservations] = useState<ProbeObservation[]>([])
+  const [dropIn, setDropIn] = useState(24)
+  const [forwardIn, setForwardIn] = useState(8)
+  const [tiltCaptures, setTiltCaptures] = useState<Vec3[]>([])
   const [capturing, setCapturing] = useState(false)
   const [captureMsg, setCaptureMsg] = useState('')
-  const [residualMm, setResidualMm] = useState<number | null>(null)
+  const [solvedPitch, setSolvedPitch] = useState<number | null>(null)
 
   // Keep the latest streamed status for the capture sampler.
   const statusRef = useRef<EngineStatus | null>(status)
   statusRef.current = status
-
-  // Marker for the current probe (fixed, known screen-space position).
-  const currentMarker = (): ProbeMarker => {
-    const p = PROBES[probeIndex]
-    return {
-      id: `${p.edge}-${probeIndex}`,
-      edge: p.edge,
-      position: grazingMarker(NOMINAL_EYE, p.edge, p.depthMm, tv.screen),
-      color: p.color
-    }
-  }
 
   // Load the display list for the picker.
   useEffect(() => {
@@ -85,22 +67,14 @@ export function TvCalibrationWizard({ settings, status, onUpdate, onClose }: Pro
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Drive the reference scene: grid-only before probes, the active marker during.
+  // Show the symmetry grid (no edge markers) on the TV for orientation throughout.
   useEffect(() => {
     if (!hasBridge || !tvActive) return
-    if (step === 3) {
-      window.panorama.sendSceneCommand({
-        type: 'calibration',
-        state: { showGrid: true, markers: [currentMarker()] }
-      })
-    } else {
-      window.panorama.sendSceneCommand({
-        type: 'calibration',
-        state: { showGrid: true, markers: [] }
-      })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, probeIndex, tvActive])
+    window.panorama.sendSceneCommand({
+      type: 'calibration',
+      state: { showGrid: true, markers: [] }
+    })
+  }, [step, tvActive])
 
   const startTvMode = async () => {
     if (!hasBridge || displayId === null) return
@@ -113,20 +87,21 @@ export function TvCalibrationWizard({ settings, status, onUpdate, onClose }: Pro
     onUpdate({ profiles: { tv: { screen } } })
   }
 
-  const saveSeed = () => {
+  const saveMeasured = () => {
     onUpdate({
       profiles: {
         tv: {
           placement: {
             ...tv.placement,
-            position: { x: 0, y: -dropCm * 10, z: forwardCm * 10 }
+            position: { x: 0, y: -dropIn * IN_MM, z: forwardIn * IN_MM }
           }
         }
       }
     })
   }
 
-  const capture = () => {
+  /** Sample the streamed face over ~1.2 s and record the camera-frame eye. */
+  const captureTilt = () => {
     setCapturing(true)
     setCaptureMsg('Hold still…')
     const eyeX: number[] = []
@@ -136,7 +111,7 @@ export function TvCalibrationWizard({ settings, status, onUpdate, onClose }: Pro
     const t0 = performance.now()
     const id = window.setInterval(() => {
       const s = statusRef.current?.frame?.sample
-      if (s && s.confidence > 0.5) {
+      if (s && s.confidence > 0.4) {
         eyeX.push(s.eyeCenter.x)
         eyeY.push(s.eyeCenter.y)
         inter.push(s.interEyeNorm)
@@ -146,7 +121,7 @@ export function TvCalibrationWizard({ settings, status, onUpdate, onClose }: Pro
         window.clearInterval(id)
         setCapturing(false)
         if (inter.length < 4) {
-          setCaptureMsg('No steady face detected — make sure you are in view and try again.')
+          setCaptureMsg('No steady face detected — step into view and try again.')
           return
         }
         const sample: Pick<ViewerSample, 'eyeCenter' | 'interEyeNorm' | 'yawDeg'> = {
@@ -158,27 +133,16 @@ export function TvCalibrationWizard({ settings, status, onUpdate, onClose }: Pro
           parallaxGain: 1,
           yawCosFloor: settings.tuning.yawCosFloor
         })
-        const obs: ProbeObservation = {
-          camEye,
-          marker: currentMarker().position,
-          edge: PROBES[probeIndex].edge
-        }
-        const next = [...observations, obs]
-        setObservations(next)
-        if (probeIndex + 1 < PROBES.length) {
-          setProbeIndex(probeIndex + 1)
-          setCaptureMsg('Captured. On to the next marker.')
-        } else {
-          runSolve(next)
-        }
+        setTiltCaptures((prev) => [...prev, camEye])
+        setCaptureMsg('Captured. Move to a different distance and capture again.')
       }
     }, 60)
   }
 
-  const runSolve = (obs: ProbeObservation[]) => {
-    const res = solvePlacement(obs, tv.placement, tv.screen)
-    onUpdate({ profiles: { tv: { placement: res.placement } } })
-    setResidualMm(res.rmsResidualMm)
+  const solveTilt = () => {
+    const pitch = solvePitchFromCenteredCaptures(tiltCaptures)
+    setSolvedPitch(pitch)
+    onUpdate({ profiles: { tv: { placement: { ...tv.placement, pitchDeg: pitch } } } })
     setStep(4)
   }
 
@@ -212,6 +176,7 @@ export function TvCalibrationWizard({ settings, status, onUpdate, onClose }: Pro
   }
 
   const screenPreview = screenMmFromDiagonal(Number(diagonalIn) || 55, 16, 9)
+  const tracking = !!status?.frame?.sample
 
   return (
     <div className="modal-overlay" onClick={cancel}>
@@ -257,7 +222,8 @@ export function TvCalibrationWizard({ settings, status, onUpdate, onClose }: Pro
             <>
               <h2>How big is the TV?</h2>
               <p>
-                Enter the <b>diagonal size</b> the TV is sold by. We assume a 16:9 screen.
+                Enter the <b>diagonal size</b> the TV is sold by (inches). We assume a 16:9
+                screen.
               </p>
               <label className="wizard-field">
                 Diagonal size (inches)
@@ -270,57 +236,59 @@ export function TvCalibrationWizard({ settings, status, onUpdate, onClose }: Pro
                 />
               </label>
               <p className="wizard-readout">
-                → {screenPreview.widthMm.toFixed(0)} mm wide × {screenPreview.heightMm.toFixed(0)}{' '}
-                mm tall
+                → {(screenPreview.widthMm / IN_MM).toFixed(1)} in wide ×{' '}
+                {(screenPreview.heightMm / IN_MM).toFixed(1)} in tall
               </p>
             </>
           )}
 
           {step === 2 && (
             <>
-              <h2>Roughly, where is the camera?</h2>
+              <h2>Where is the camera?</h2>
               <p>
-                A rough guess is enough — the next step measures it precisely. Estimate how
-                far the laptop camera sits <b>below the center of the TV</b> and how far it
-                stands <b>in front</b> of the screen.
+                Measure with a tape — this is the part that has to be right. How far the
+                laptop camera sits <b>below the center of the TV</b>, and how far it stands{' '}
+                <b>in front</b> of the screen face.
               </p>
               <label className="wizard-field">
-                Camera below TV center (cm)
+                Camera below TV center (inches)
                 <input
                   type="number"
-                  value={dropCm}
-                  onChange={(e) => setDropCm(Number(e.target.value))}
-                  step="1"
+                  value={dropIn}
+                  onChange={(e) => setDropIn(Number(e.target.value))}
+                  step="0.5"
                 />
               </label>
               <label className="wizard-field">
-                Camera in front of screen (cm)
+                Camera in front of screen (inches)
                 <input
                   type="number"
-                  value={forwardCm}
-                  onChange={(e) => setForwardCm(Number(e.target.value))}
-                  step="1"
+                  value={forwardIn}
+                  onChange={(e) => setForwardIn(Number(e.target.value))}
+                  step="0.5"
                 />
               </label>
+              <p className="wizard-hint">
+                (If the camera sits above the TV center, enter a negative "below" value.)
+              </p>
             </>
           )}
 
           {step === 3 && (
             <>
-              <h2>
-                Marker {probeIndex + 1} of {PROBES.length}
-              </h2>
+              <h2>Camera tilt</h2>
               <p className="wizard-bigprompt">
-                Move slowly until the <b>{PROBES[probeIndex].label}</b> marker is just
-                touching the <b>{PROBES[probeIndex].edge}</b> edge of the TV — then hold
-                still and press Capture.
+                Stand in front of the TV at a comfortable distance and press Capture. Then{' '}
+                <b>step toward or away</b> from the TV and capture again. Two or three
+                distances is plenty — keep your head at the same height each time.
               </p>
-              <button className="wizard-capture" onClick={capture} disabled={capturing}>
-                {capturing ? 'Capturing…' : 'Capture'}
+              <button className="wizard-capture" onClick={captureTilt} disabled={capturing}>
+                {capturing ? 'Capturing…' : `Capture (${tiltCaptures.length})`}
               </button>
               {captureMsg && <p className="wizard-readout">{captureMsg}</p>}
               <p className="wizard-hint">
-                Tracking: {status?.frame?.sample ? 'face locked' : 'no face — step into view'}
+                Tracking: {tracking ? 'face locked' : 'no face — step into view'}
+                {tiltCaptures.length > 0 && ` · ${tiltCaptures.length} captured`}
               </p>
             </>
           )}
@@ -329,28 +297,32 @@ export function TvCalibrationWizard({ settings, status, onUpdate, onClose }: Pro
             <>
               <h2>Fine-tune</h2>
               <p>
-                Calibration solved
-                {residualMm !== null && ` (fit ±${residualMm.toFixed(1)} mm)`}. Nudge if the
-                window still looks off; the TV updates live.
+                {solvedPitch !== null
+                  ? `Camera tilt solved: ${solvedPitch.toFixed(1)}°. `
+                  : ''}
+                Nudge any axis if the window still looks off — the TV updates live.
               </p>
               <Slider
-                label="Camera height vs TV center (mm)"
-                min={-900}
-                max={900}
-                value={tv.placement.position.y}
-                onChange={(v) => setPlacement({ y: v })}
+                label="Camera below/above TV center (inches)"
+                min={-36}
+                max={36}
+                step={0.5}
+                value={-tv.placement.position.y / IN_MM}
+                onChange={(v) => setPlacement({ y: -v * IN_MM })}
               />
               <Slider
-                label="Camera forward of screen (mm)"
-                min={-200}
-                max={1200}
-                value={tv.placement.position.z}
-                onChange={(v) => setPlacement({ z: v })}
+                label="Camera in front of screen (inches)"
+                min={-8}
+                max={48}
+                step={0.5}
+                value={tv.placement.position.z / IN_MM}
+                onChange={(v) => setPlacement({ z: v * IN_MM })}
               />
               <Slider
                 label="Camera tilt / pitch (°)"
                 min={-30}
                 max={30}
+                step={0.5}
                 value={tv.placement.pitchDeg}
                 onChange={(v) => setPlacement({ pitch: v })}
               />
@@ -368,8 +340,17 @@ export function TvCalibrationWizard({ settings, status, onUpdate, onClose }: Pro
                 Back
               </button>
             )}
+            {step === 3 && (
+              <button onClick={() => setTiltCaptures([])} disabled={capturing}>
+                Clear
+              </button>
+            )}
             {step === 0 && (
-              <button className="primary" onClick={startTvMode} disabled={!hasBridge || displayId === null}>
+              <button
+                className="primary"
+                onClick={startTvMode}
+                disabled={!hasBridge || displayId === null}
+              >
                 Start TV mode
               </button>
             )}
@@ -388,18 +369,27 @@ export function TvCalibrationWizard({ settings, status, onUpdate, onClose }: Pro
               <button
                 className="primary"
                 onClick={() => {
-                  saveSeed()
-                  setProbeIndex(0)
-                  setObservations([])
+                  saveMeasured()
+                  setTiltCaptures([])
+                  setSolvedPitch(null)
                   setStep(3)
                 }}
               >
-                Start measuring
+                Next
+              </button>
+            )}
+            {step === 3 && (
+              <button
+                className="primary"
+                onClick={solveTilt}
+                disabled={capturing || tiltCaptures.length < 2}
+              >
+                Solve tilt
               </button>
             )}
             {step === 4 && (
               <button className="primary" onClick={finish}>
-                Save & finish
+                Save &amp; finish
               </button>
             )}
           </div>
@@ -414,22 +404,24 @@ function Slider({
   min,
   max,
   value,
-  onChange
+  onChange,
+  step = 1
 }: {
   label: string
   min: number
   max: number
   value: number
   onChange: (v: number) => void
+  step?: number
 }) {
   return (
     <label className="wizard-field">
-      {label}: {value.toFixed(0)}
+      {label}: {value.toFixed(1)}
       <input
         type="range"
         min={min}
         max={max}
-        step={1}
+        step={step}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
       />

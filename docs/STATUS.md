@@ -101,14 +101,23 @@ exactly like looking through real glass.
   broadcast keeps both in sync (so fine-tune sliders live-preview on the TV), an
   `engine:status` stream feeds the control window's panels/wizard, and a
   `scene:command` channel drives the calibration reference scene — all relayed by main.
-- **TV calibration = the viewer as a measurement probe.** The off-axis frustum makes a
-  virtual marker at a known screen-space position appear/disappear exactly when the eye
-  crosses a specific plane, so "move until the red marker touches the right edge" is a
-  geometric constraint, not eyeballing. The wizard captures the camera-frame eye at each
-  trigger and `tvCalibration.solvePlacement` (damped Gauss–Newton/LM) recovers the
-  camera placement. Constrained DoF (centered, level, facing the room) stay pinned;
-  widening to full 6-DoF is just enlarging the solver's `free` list. The shared
-  camera↔screen math lives in `cameraModel.ts` so the solver and calibrator can't drift.
+- **TV calibration = measure what's easy, solve only the hard bit (camera tilt).**
+  On-device testing showed edge-graze probes on a big TV demand head movements the viewer
+  can't make (you can't crouch far enough to reveal a bottom-edge marker), so the wizard
+  now: (1) takes tape measurements in **inches** — TV diagonal, camera-below-center,
+  camera-forward — which pin x/y/z and yaw/roll≈0; (2) solves the one thing that's hard to
+  eyeball, the camera's **upward tilt (pitch)**, from a couple of easy "stand near / step
+  back" captures: with eye-height held constant, the camera-frame `y` vs `z` samples lie on
+  a line whose slope is `tan(pitch)` (`tvCalibration.solvePitchFromCenteredCaptures`); then
+  (3) a live fine-tune. The shared camera↔screen math lives in `cameraModel.ts` so solver
+  and calibrator can't drift. The general edge-graze least-squares solver
+  (`tvCalibration.solvePlacement`, damped Gauss–Newton/LM over a configurable `free` DoF
+  set) remains for future full-6-DoF / arbitrary-placement calibration.
+- **Distance tracking (TV mode).** Couch-distance faces are small, so TV mode captures at
+  **1280×720** (vs laptop mode's validated 640×480) with the geometry aspect taken from the
+  *actual* stream size, and loosens MediaPipe's detection floors to 0.3. These are scoped to
+  TV mode so the proven laptop path is untouched. Heavier work (digital-zoom ROI on the
+  locked face, a body-pose fallback) is deferred.
 
 ---
 
@@ -132,15 +141,14 @@ exactly like looking through real glass.
   confidence-gated hold, eased re-acquire — see §2) targets the reported blink lurch and
   the >45° yaw instability. Unit-tested; the blink/yaw/confidence paths require a real
   face, so confirm on-device with the Pose panel's yaw/confidence readout.
-- **TV mode — built, not yet validated on a real television.** Profiles, dual windows,
-  cross-window IPC, the calibration wizard, and the `tvCalibration` solver are complete
-  and verified short of hardware (typecheck, 59 unit tests incl. solver-recovery and
-  settings-migration, build, and solo-mode parity in the browser). The dual-window +
-  camera-on-TV path can't run in the headless harness, so the end-to-end flow (plug in
-  HDMI → pick display → run the probe wizard → confirm parallax from the calibrated
-  spot) must be exercised on an actual TV. Pitch vs. vertical-offset can be
-  ill-conditioned at a single distance — mitigated with two-depth probes; the fine-tune
-  sliders are the fallback.
+- **TV mode — first on-device pass done; calibration reworked, needs a re-test.** The
+  initial real-TV run surfaced concrete problems (pulsing markers had no stable edge;
+  bottom-edge markers were physically unreachable on a 75" set with the camera tilted up;
+  redundant deep probes; mixed units; weak face tracking across the room). Addressed:
+  static markers, the **measure + tilt-solve** calibration (§2), all-inches UI, and the
+  TV-mode distance-tracking bump (720p + actual-aspect + looser floors). Verified off-device
+  (typecheck, 62 unit tests incl. pitch recovery, build, solo-mode parity); the dual-window +
+  camera-on-TV flow still can't run headless, so it needs another on-device pass.
 - **Fully turned away *and* moved — still imperfect (Phase 2).** With the face invisible
   there is no viewpoint data, so the held view is necessarily stale; if the viewer walks
   while turned around, the view is wrong until they turn back (now eased, not snapped).
@@ -194,11 +202,12 @@ the calibration + windowing layer is now built (P2.1–P2.6):
 - **✅ Camera→screen transform via profiles.** `CameraPlacement`/`ScreenGeometry` now
   live in a `tv` profile set by the TV calibration wizard — **no core rewrite**, the
   off-axis math in `GeometrySolver` was already 6-DoF capable.
-- **✅ Constrained, probe-based calibration.** The wizard recommends a centered placement
-  (collapsing x/yaw/roll≈0) and solves the remaining drop/forward/pitch from "move until
-  the marker grazes the edge" probe events (`tvCalibration.solvePlacement`), then offers
-  a live fine-tune. Designed to widen to arbitrary placement later (enlarge the `free`
-  list). See §2.
+- **✅ Constrained calibration (measure + tilt-solve).** The wizard takes inch measurements
+  (TV size, camera below/forward) and solves the camera tilt from easy near/step-back
+  captures, then offers a live fine-tune (§2). The general edge-graze solver
+  (`tvCalibration.solvePlacement`) stays for future arbitrary placement (widen the `free`
+  list). *(Earlier edge-graze-on-every-axis wizard flow was dropped after on-device testing
+  — vertical markers were unreachable on a large TV.)*
 - **✅ Dual-window / multi-display handling.** Electron main enumerates displays, opens
   the scene window fullscreen on the TV and the control window on the laptop, and relays
   IPC between them. Manual `laptop`/`tv` mode switch (no flaky per-display auto-profiles).

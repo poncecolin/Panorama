@@ -131,10 +131,9 @@ export class CalibScene extends SceneBase {
     }
   }
 
-  update(_dtMs: number, elapsedMs: number): void {
-    // A gentle pulse so markers read as "live" and easy to spot at the edge.
-    const s = 1 + Math.sin(elapsedMs / 250) * 0.12
-    for (const child of this.markerGroup.children) child.scale.setScalar(s)
+  update(_dtMs: number, _elapsedMs: number): void {
+    // Markers are intentionally STATIC: calibration needs a stable, consistent
+    // edge to align to, so no pulsing/animation here.
   }
 
   protected disposeScene(): void {

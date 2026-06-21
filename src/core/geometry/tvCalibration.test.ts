@@ -6,6 +6,7 @@ import {
   ScreenEdge,
   edgeResidual,
   projectMarkerToScreen,
+  solvePitchFromCenteredCaptures,
   solvePlacement
 } from './tvCalibration'
 
@@ -119,6 +120,32 @@ describe('solvePlacement', () => {
     })
     expect(res.iterations).toBe(0)
     expect(res.placement).toBe(seed)
+  })
+})
+
+describe('solvePitchFromCenteredCaptures', () => {
+  // Camera below & forward of the TV, tilted up; viewer keeps one eye height and
+  // only steps toward/away, so screen-space E.y is constant across captures.
+  const truth = place({ position: { x: 0, y: -600, z: 200 }, pitchDeg: 8 })
+  const eyeHeight = 100 // mm above TV center, held constant
+  const camEyes = [1200, 1700, 2200, 2700].map((z, i) =>
+    inverseApplyPlacement({ x: [0, 80, -60, 30][i], y: eyeHeight, z }, truth)
+  )
+
+  it('recovers the camera tilt from depth-pair captures', () => {
+    expect(solvePitchFromCenteredCaptures(camEyes)).toBeCloseTo(truth.pitchDeg, 1)
+  })
+
+  it('is independent of lateral position', () => {
+    const shifted = [1200, 1700, 2200].map((z) =>
+      inverseApplyPlacement({ x: 400, y: eyeHeight, z }, truth)
+    )
+    expect(solvePitchFromCenteredCaptures(shifted)).toBeCloseTo(truth.pitchDeg, 1)
+  })
+
+  it('returns 0 when depth did not vary (undetermined)', () => {
+    const same = [0, 50, -50].map((x) => inverseApplyPlacement({ x, y: eyeHeight, z: 1500 }, truth))
+    expect(solvePitchFromCenteredCaptures(same)).toBe(0)
   })
 })
 
