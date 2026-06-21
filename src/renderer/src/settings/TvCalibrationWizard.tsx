@@ -43,8 +43,12 @@ export function TvCalibrationWizard({ settings, status, onUpdate, onClose }: Pro
   const [displays, setDisplays] = useState<DisplayDescriptor[]>([])
   const [displayId, setDisplayId] = useState<number | null>(tv.displayId ?? null)
   const [diagonalIn, setDiagonalIn] = useState('55')
-  const [dropIn, setDropIn] = useState(24)
+  // Straight-line distance from the on-screen center cross to the camera lens — easier
+  // to tape-measure than a pure vertical drop (both endpoints are visible). The
+  // vertical drop is recovered with Pythagoras from this and the forward distance.
+  const [slantIn, setSlantIn] = useState(25)
   const [forwardIn, setForwardIn] = useState(8)
+  const dropIn = Math.sqrt(Math.max(slantIn * slantIn - forwardIn * forwardIn, 0))
   const [tiltCaptures, setTiltCaptures] = useState<Vec3[]>([])
   const [capturing, setCapturing] = useState(false)
   const [captureMsg, setCaptureMsg] = useState('')
@@ -67,12 +71,14 @@ export function TvCalibrationWizard({ settings, status, onUpdate, onClose }: Pro
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Show the symmetry grid (no edge markers) on the TV for orientation throughout.
+  // Drive the TV reference display per step: during "Camera position" show only a
+  // STATIC center crosshair (to tape-measure to); otherwise the parallax grid.
   useEffect(() => {
     if (!hasBridge || !tvActive) return
+    const onCameraStep = step === 2
     window.panorama.sendSceneCommand({
       type: 'calibration',
-      state: { showGrid: true, markers: [] }
+      state: { showGrid: !onCameraStep, markers: [], showCenterTarget: onCameraStep }
     })
   }, [step, tvActive])
 
@@ -246,16 +252,15 @@ export function TvCalibrationWizard({ settings, status, onUpdate, onClose }: Pro
             <>
               <h2>Where is the camera?</h2>
               <p>
-                Measure with a tape — this is the part that has to be right. How far the
-                laptop camera sits <b>below the center of the TV</b>, and how far it stands{' '}
-                <b>in front</b> of the screen face.
+                A crosshair is showing at the <b>center of the TV</b>. Measure with a tape —
+                this is the part that has to be right.
               </p>
               <label className="wizard-field">
-                Camera below TV center (inches)
+                Straight-line distance, TV center → camera (inches)
                 <input
                   type="number"
-                  value={dropIn}
-                  onChange={(e) => setDropIn(Number(e.target.value))}
+                  value={slantIn}
+                  onChange={(e) => setSlantIn(Number(e.target.value))}
                   step="0.5"
                 />
               </label>
@@ -268,8 +273,12 @@ export function TvCalibrationWizard({ settings, status, onUpdate, onClose }: Pro
                   step="0.5"
                 />
               </label>
+              <p className="wizard-readout">
+                → camera sits {dropIn.toFixed(1)} in below the TV center
+              </p>
               <p className="wizard-hint">
-                (If the camera sits above the TV center, enter a negative "below" value.)
+                Measure the slant straight from the on-screen crosshair to the camera lens,
+                and the forward distance horizontally from the screen face.
               </p>
             </>
           )}

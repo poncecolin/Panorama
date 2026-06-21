@@ -106,6 +106,14 @@ export default function App({ surface = 'auto' }: { surface?: 'auto' | 'scene' }
           }}
           onEngine={(e) => (engineRef.current = e)}
         />
+        {/* Static crosshair at the physical screen center for tape-measuring the
+            camera position. Deliberately NOT parallax-driven. */}
+        {calib?.showCenterTarget && (
+          <div className="calib-center-target" aria-hidden="true">
+            <span className="calib-center-dot" />
+            <span className="calib-center-label">screen center — measure to here</span>
+          </div>
+        )}
       </div>
     )
   }

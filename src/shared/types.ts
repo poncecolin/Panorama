@@ -125,6 +125,12 @@ export interface CalibrationSceneState {
   showGrid: boolean
   /** Active probe markers for the current wizard step. */
   markers: ProbeMarker[]
+  /**
+   * Show a STATIC 2D crosshair at the exact physical center of the screen (a flat
+   * overlay that does NOT move with the viewer), so the user can tape-measure from
+   * screen center to the camera during the "camera position" step.
+   */
+  showCenterTarget?: boolean
 }
 
 /** Defaults that make the illusion work with zero setup. */
