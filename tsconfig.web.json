@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@shared/*": ["src/shared/*"],
+      "@core/*": ["src/core/*"],
+      "@scenes/*": ["src/scenes/*"],
+      "@renderer/*": ["src/renderer/src/*"]
+    }
+  },
+  "include": [
+    "src/renderer/**/*",
+    "src/core/**/*",
+    "src/scenes/**/*",
+    "src/shared/**/*"
+  ]
+}
