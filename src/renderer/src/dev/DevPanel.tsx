@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { AppSettings, TrackingState, TuningParams } from '@shared/types'
+import { AppSettings, SettingsPatch, TrackingState, TuningParams } from '@shared/types'
 import { DEFAULT_TUNING } from '@shared/types'
 import { EngineStatus } from '../engine/PanoramaEngine'
 import { CameraPanel } from './panels/CameraPanel'
@@ -10,7 +10,7 @@ import { TuningPanel } from './panels/TuningPanel'
 interface Props {
   status: EngineStatus | null
   settings: AppSettings
-  onUpdate: (patch: Partial<AppSettings>) => void
+  onUpdate: (patch: SettingsPatch) => void
   getVideo: () => HTMLVideoElement | null
 }
 

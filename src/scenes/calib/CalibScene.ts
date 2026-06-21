@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { CalibrationSceneState, ProbeMarker, ScreenEdge, Vec3 } from '@shared/types'
+import { grazingMarker } from '@core/geometry/tvCalibration'
 import { SceneBase } from '../lib/SceneBase'
 import { SceneEnv } from '../types'
 import { canvasTexture } from '../lib/textures'
@@ -28,28 +29,6 @@ const MARKER_SIZE = 70
 const DEFAULT_MARKER_Z = -900
 /** Nominal eye distance the default markers are arranged to graze from. */
 const DEFAULT_EYE_Z = 700
-
-/** Screen-space position of a marker at depth `mz` that grazes `edge` from eye `E`. */
-export function grazingMarker(
-  E: Vec3,
-  edge: ScreenEdge,
-  mz: number,
-  screen: { widthMm: number; heightMm: number }
-): Vec3 {
-  const t = E.z / (E.z - mz)
-  const halfW = screen.widthMm / 2
-  const halfH = screen.heightMm / 2
-  switch (edge) {
-    case 'right':
-      return { x: E.x + (halfW - E.x) / t, y: E.y, z: mz }
-    case 'left':
-      return { x: E.x + (-halfW - E.x) / t, y: E.y, z: mz }
-    case 'top':
-      return { x: E.x, y: E.y + (halfH - E.y) / t, z: mz }
-    case 'bottom':
-      return { x: E.x, y: E.y + (-halfH - E.y) / t, z: mz }
-  }
-}
 
 const EDGE_COLORS: Record<ScreenEdge, number> = {
   right: 0xff3b3b,

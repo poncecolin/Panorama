@@ -53,6 +53,32 @@ export interface SolveResult {
 const DEFAULT_FREE: PlacementParam[] = ['y', 'z', 'pitch']
 
 /**
+ * Screen-space position of a marker at depth `mz` (behind the glass) that grazes
+ * `edge` when viewed from screen-space eye `E`. Used to lay out probe markers for
+ * a nominal viewer so a small head move brings them to the edge.
+ */
+export function grazingMarker(
+  E: Vec3,
+  edge: ScreenEdge,
+  mz: number,
+  screen: ScreenGeometry
+): Vec3 {
+  const t = E.z / (E.z - mz)
+  const halfW = screen.widthMm / 2
+  const halfH = screen.heightMm / 2
+  switch (edge) {
+    case 'right':
+      return { x: E.x + (halfW - E.x) / t, y: E.y, z: mz }
+    case 'left':
+      return { x: E.x + (-halfW - E.x) / t, y: E.y, z: mz }
+    case 'top':
+      return { x: E.x, y: E.y + (halfH - E.y) / t, z: mz }
+    case 'bottom':
+      return { x: E.x, y: E.y + (-halfH - E.y) / t, z: mz }
+  }
+}
+
+/**
  * Where a marker projects onto the screen plane (z = 0) as seen from the eye.
  * Intersect the eye→marker ray with z = 0. The marker is behind the glass
  * (marker.z < 0) and the eye in front (eye.z > 0), so the hit is between them.

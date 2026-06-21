@@ -273,3 +273,44 @@ export interface DisplayInfo {
   height: number
   scaleFactor: number
 }
+
+/** One connected display, for the TV-mode display picker (Phase 2). */
+export interface DisplayDescriptor {
+  /** Electron display id (stable for the session). */
+  id: number
+  /** The built-in laptop panel (where available). */
+  internal: boolean
+  primary: boolean
+  /** Human label, e.g. "External · 3840×2160". */
+  label: string
+  width: number
+  height: number
+}
+
+/**
+ * The window the engine renders into. In TV mode the engine lives in the `scene`
+ * window (fullscreen on the TV) and the `control` window (laptop) drives it; in
+ * laptop mode a single `solo` window does both.
+ */
+export type Surface = 'solo' | 'scene' | 'control'
+
+/**
+ * A serializable slice of EngineStatus streamed from the scene window to the
+ * control window (Phase 2). Omits the heavy per-frame face data; keeps the locked
+ * viewer's sample so the control window's calibrator/pose panel can work.
+ */
+export interface EngineStatusMsg {
+  state: TrackingState
+  blend: number
+  eyeMm: Vec3
+  renderFps: number
+  slowFrames: number
+  cameraError: string | null
+  sample: ViewerSample | null
+  detectFps: number
+}
+
+/** Transient command sent control → scene to drive the calibration reference scene. */
+export type SceneCommand =
+  | { type: 'calibration'; state: CalibrationSceneState }
+  | { type: 'exitCalibration' }

@@ -25,8 +25,15 @@ export function useSettings() {
       }
     }
     load()
+    // Stay in sync when another window (e.g. the control surface) changes settings.
+    const unsub = hasBridge
+      ? window.panorama.onSettingsChanged((s) => {
+          if (!cancelled) setSettings(s)
+        })
+      : undefined
     return () => {
       cancelled = true
+      unsub?.()
     }
   }, [])
 

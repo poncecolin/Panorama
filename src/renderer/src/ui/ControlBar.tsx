@@ -1,4 +1,4 @@
-import { AppSettings } from '@shared/types'
+import { AppSettings, SettingsPatch } from '@shared/types'
 import { hasBridge } from '../state/useSettings'
 
 interface SceneOption {
@@ -15,7 +15,11 @@ interface Props {
   onSelectScene: (id: string) => void
   onOpenSettings: () => void
   onOpenCalibration: () => void
-  onUpdate: (patch: Partial<AppSettings>) => void
+  /** Open the TV-mode setup/calibration wizard. */
+  onEnterTvSetup: () => void
+  /** Leave TV mode, back to the built-in laptop window. */
+  onExitTv: () => void
+  onUpdate: (patch: SettingsPatch) => void
 }
 
 export function ControlBar(props: Props) {
@@ -28,8 +32,12 @@ export function ControlBar(props: Props) {
     onSelectScene,
     onOpenSettings,
     onOpenCalibration,
+    onEnterTvSetup,
+    onExitTv,
     onUpdate
   } = props
+
+  const tvMode = settings.activeProfile === 'tv'
 
   return (
     <div className={`control-bar ${visible ? 'visible' : ''}`} role="toolbar">
@@ -66,6 +74,16 @@ export function ControlBar(props: Props) {
       />
 
       <span className="sep" />
+
+      {tvMode ? (
+        <button onClick={onExitTv} title="Leave TV mode" className="active">
+          📺 TV mode
+        </button>
+      ) : (
+        <button onClick={onEnterTvSetup} title="Set up TV mode (HDMI)">
+          📺 TV mode…
+        </button>
+      )}
 
       <button onClick={onOpenCalibration} title="Calibration wizard">
         Calibrate

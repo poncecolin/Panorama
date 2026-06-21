@@ -1,4 +1,4 @@
-import { AppSettings, EyePose, TrackingState, Vec3 } from '@shared/types'
+import { AppSettings, CalibrationSceneState, EyePose, TrackingState, Vec3 } from '@shared/types'
 import { activeCalibration } from '@shared/settings'
 import { GeometryConfig, GeometrySolver } from '@core/geometry/GeometrySolver'
 import { computeApproachDolly } from '@core/geometry/dolly'
@@ -131,6 +131,11 @@ export class PanoramaEngine {
     this.scene = scene
     scene.setWindowHeightMm?.(this.settings.tuning.windowHeightMm)
     this.elapsedMs = 0
+  }
+
+  /** Forward calibration probe state to the active scene (the calib scene uses it). */
+  setCalibrationState(state: CalibrationSceneState): void {
+    this.scene?.setCalibrationState?.(state)
   }
 
   updateSettings(settings: AppSettings): void {

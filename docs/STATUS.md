@@ -1,6 +1,6 @@
 # Panorama — Project Status
 
-_Living document. Update as milestones land. Last updated: 2026-06-20._
+_Living document. Update as milestones land. Last updated: 2026-06-21._
 
 Panorama turns a screen into a simulated glass **window**: the laptop camera tracks
 the viewer's eyes, and an animated 3D scene is rendered through an off-axis
@@ -28,6 +28,7 @@ exactly like looking through real glass.
 | Calibration + settings UI (M8) | ✅ Done | Friendly 5-step wizard (screen size from diagonal, IPD, optional FOV capture at a measured distance, review/save) + a Settings panel (edit physical setup, audio, recalibrate, reset). Sets a `calibrated` flag. Pure math in `src/shared/calibration.ts` (unit-tested). |
 | Space station scene | ✅ Done | Sci-fi hero scene (`spaceStation/SpaceStationScene.ts`): residential-port view of a huge station — rotating habitat wheel with lit windows, docking spindle/arms, ships of varied sizes coming & going (engine glows), skeletal dry-dock with cranes, office/habitat district, a hyperspace **jump gate** with ships streaking in/out, an Earth-like planet, starfield + nebula. Scale reads through parallax. Registered as `space`. |
 | Launch | ✅ Done | Double-click **`Panorama.cmd`** (builds once, then launches the built app — no terminal) or **`Panorama.vbs`** for a console-free start. The built app runs from `file://` and camera works (verified). |
+| TV mode (Phase 2) | 🟡 Built · needs on-device test | Laptop-next-to-TV over HDMI. Calibration **profiles** (`laptop`/`tv`) in settings; **dual windows** (scene fullscreen on the TV + control surface on the laptop) with cross-window IPC; **TV calibration wizard** using the viewer as a measurement probe; pure `tvCalibration` solver. See §2/§5. Verified short of real hardware (typecheck, 59 tests, build, solo-mode parity); the dual-window/camera path needs validation on an actual television. |
 
 **Architecture — the three swappable boundaries are in place:**
 - `ViewerTracker` (`src/core/tracker/`) — `MediaPipeFaceTracker` today; pose-based impl can be added for Phase 2.
@@ -38,7 +39,7 @@ exactly like looking through real glass.
 - Electron app: `npm run dev` (needs Node on PATH: `C:\Program Files\nodejs`).
 - Browser-only UI iteration: `npm run dev:web` (port 5180). Camera is blocked in the
   headless preview, so it shows attract mode — that's expected.
-- Unit tests: `npm test` (42 passing). Typecheck: `npm run typecheck`.
+- Unit tests: `npm test` (59 passing). Typecheck: `npm run typecheck`.
 - Self-test harnesses (browser): `/?selftest=tracker` (MediaPipe init),
   `/?selftest=track-live` (full pipeline via a synthetic camera),
   `/?selftest=render` (illusion check; `window.panoramaSetEye(x,y,z)` to move the eye).
@@ -85,6 +86,29 @@ exactly like looking through real glass.
   dev Tuning panel ("Tracking robustness"); live yaw/confidence in the Pose panel.
 - **Coordinates:** screen space is millimetres, origin at screen center, +X right,
   +Y up, +Z toward the viewer. Scenes live behind the glass at negative Z.
+- **Calibration profiles (Phase 2).** `AppSettings` no longer holds a single
+  `placement`/`screen`; it holds `profiles.{laptop,tv}` (each a `CameraPlacement` +
+  `ScreenGeometry`) plus an `activeProfile`. The engine renders through the active
+  profile. `intrinsics` (the one physical camera lens) and `viewer` (IPD) stay
+  top-level. Legacy Phase-1 saves migrate into `profiles.laptop` automatically. A
+  `SettingsPatch` type allows partial profile edits; the model carries full 6-DoF so
+  arbitrary placement is a later additive step.
+- **Dual-surface windows (TV mode).** Laptop mode is one `solo` window (engine +
+  overlays, as Phase 1). TV mode opens two windows: a `scene` window fullscreen on the
+  TV (owns the engine, tracker, and camera) and a `control` window on the laptop
+  (wizard + overlays, no engine). One renderer bundle serves all three, routed by
+  `?surface=scene` and the active profile. Cross-window IPC: a `settings:changed`
+  broadcast keeps both in sync (so fine-tune sliders live-preview on the TV), an
+  `engine:status` stream feeds the control window's panels/wizard, and a
+  `scene:command` channel drives the calibration reference scene — all relayed by main.
+- **TV calibration = the viewer as a measurement probe.** The off-axis frustum makes a
+  virtual marker at a known screen-space position appear/disappear exactly when the eye
+  crosses a specific plane, so "move until the red marker touches the right edge" is a
+  geometric constraint, not eyeballing. The wizard captures the camera-frame eye at each
+  trigger and `tvCalibration.solvePlacement` (damped Gauss–Newton/LM) recovers the
+  camera placement. Constrained DoF (centered, level, facing the room) stay pinned;
+  widening to full 6-DoF is just enlarging the solver's `free` list. The shared
+  camera↔screen math lives in `cameraModel.ts` so the solver and calibrator can't drift.
 
 ---
 
@@ -108,6 +132,15 @@ exactly like looking through real glass.
   confidence-gated hold, eased re-acquire — see §2) targets the reported blink lurch and
   the >45° yaw instability. Unit-tested; the blink/yaw/confidence paths require a real
   face, so confirm on-device with the Pose panel's yaw/confidence readout.
+- **TV mode — built, not yet validated on a real television.** Profiles, dual windows,
+  cross-window IPC, the calibration wizard, and the `tvCalibration` solver are complete
+  and verified short of hardware (typecheck, 59 unit tests incl. solver-recovery and
+  settings-migration, build, and solo-mode parity in the browser). The dual-window +
+  camera-on-TV path can't run in the headless harness, so the end-to-end flow (plug in
+  HDMI → pick display → run the probe wizard → confirm parallax from the calibrated
+  spot) must be exercised on an actual TV. Pitch vs. vertical-offset can be
+  ill-conditioned at a single distance — mitigated with two-depth probes; the fine-tune
+  sliders are the fallback.
 - **Fully turned away *and* moved — still imperfect (Phase 2).** With the face invisible
   there is no viewpoint data, so the held view is necessarily stale; if the viewer walks
   while turned around, the view is wrong until they turn back (now eased, not snapped).
@@ -137,12 +170,14 @@ exactly like looking through real glass.
 **Phase 1 (M1–M8) is complete**, validated on-device, and closed out (tracking
 hold-window, launcher, polished landscape, tracking-robustness pass). Remaining work:
 
+- **Phase 2 (in progress):** drive an external TV over HDMI (see §5). The calibration
+  foundation, dual-window surfaces, cross-window IPC, and the probe-based TV calibration
+  wizard are **built** (P2.1–P2.6); next is **on-device validation on a real TV** (P2.7,
+  §3). Still deferred within Phase 2: a pose-based tracker for longer distances and the
+  **body-pose fallback** for the turned-away case.
 - **Active:** more scenes (beach/city) behind the existing `ThreeScene` contract
   (landscape + space station shipped); on-device confirmation of the tracking-robustness
   pass (§3).
-- **Phase 2:** drive an external TV over HDMI (see §5) — primarily a `CameraPlacement`
-  calibration for an off-axis camera, plus a pose-based tracker for longer distances and
-  the **body-pose fallback** for the turned-away case.
 
 **Deferred to a later phase (by decision):**
 - **Ambient audio module** — controls are wired but silent; no audio module yet.
@@ -153,15 +188,25 @@ hold-window, launcher, polished landscape, tracking-robustness pass). Remaining 
 ## 5. Phase 2 — external monitor / TV (no built-in camera)
 
 Setup: laptop sits near a large TV and drives it over HDMI (extended display); the
-laptop's own camera does the tracking. The architecture already anticipates this:
+laptop's own camera does the tracking. The architecture already anticipated this, and
+the calibration + windowing layer is now built (P2.1–P2.6):
 
-- **Camera→screen transform.** Phase 1 assumes the camera is centered just above the
-  screen (`CameraPlacement` ≈ that). Phase 2 only needs the calibration step to set
-  `CameraPlacement.position/orientation` for the camera's real location relative to
-  the big screen — **no core rewrite**, just new calibration UI + math already present
-  in `GeometrySolver`.
+- **✅ Camera→screen transform via profiles.** `CameraPlacement`/`ScreenGeometry` now
+  live in a `tv` profile set by the TV calibration wizard — **no core rewrite**, the
+  off-axis math in `GeometrySolver` was already 6-DoF capable.
+- **✅ Constrained, probe-based calibration.** The wizard recommends a centered placement
+  (collapsing x/yaw/roll≈0) and solves the remaining drop/forward/pitch from "move until
+  the marker grazes the edge" probe events (`tvCalibration.solvePlacement`), then offers
+  a live fine-tune. Designed to widen to arbitrary placement later (enlarge the `free`
+  list). See §2.
+- **✅ Dual-window / multi-display handling.** Electron main enumerates displays, opens
+  the scene window fullscreen on the TV and the control window on the laptop, and relays
+  IPC between them. Manual `laptop`/`tv` mode switch (no flaky per-display auto-profiles).
+- **⏳ On-device validation (P2.7).** The only remaining Phase-2-foundation step: confirm
+  the flow on a real television (§3).
 - **Longer viewing distances** favor adding a **pose-based `ViewerTracker`** (body /
   upper-body detection) behind the existing interface, for when faces are small/far.
+  Deferred; the current wizard targets face-tracking range (~0.5–2.5 m).
 - **Body-pose fallback for the turned-away case (robustness item ⑤).** When the face is
   not visible (viewer fully turned around), keep a coarse head-position estimate from the
   shoulders/upper body and fuse it with the face tracker (face = precise when present,

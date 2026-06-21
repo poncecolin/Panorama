@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { AppSettings } from '@shared/types'
+import { AppSettings, CalibrationSceneState } from '@shared/types'
 import { createScene } from '@scenes/registry'
 import { PanoramaEngine, EngineStatus } from './PanoramaEngine'
 
@@ -7,14 +7,26 @@ interface Props {
   settings: AppSettings
   onStatus?: (s: EngineStatus) => void
   onEngine?: (engine: PanoramaEngine | null) => void
+  /** Force a specific scene (e.g. 'calib' during TV calibration), overriding settings. */
+  sceneIdOverride?: string
+  /** Probe markers/grid for the calibration reference scene. */
+  calibrationState?: CalibrationSceneState | null
 }
 
 /** Mounts the canvas and owns the PanoramaEngine lifecycle. */
-export function WindowSurface({ settings, onStatus, onEngine }: Props) {
+export function WindowSurface({
+  settings,
+  onStatus,
+  onEngine,
+  sceneIdOverride,
+  calibrationState
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const engineRef = useRef<PanoramaEngine | null>(null)
   const settingsRef = useRef(settings)
   settingsRef.current = settings
+
+  const effectiveSceneId = sceneIdOverride ?? settings.activeSceneId
 
   // Create the engine once.
   useEffect(() => {
@@ -23,7 +35,7 @@ export function WindowSurface({ settings, onStatus, onEngine }: Props) {
     engineRef.current = engine
     onEngine?.(engine)
     const unsub = onStatus ? engine.onStatus(onStatus) : undefined
-    engine.start(canvas, createScene(settingsRef.current.activeSceneId))
+    engine.start(canvas, createScene(effectiveSceneId))
 
     const ro = new ResizeObserver(() => engine.resize(canvas))
     ro.observe(canvas)
@@ -43,11 +55,16 @@ export function WindowSurface({ settings, onStatus, onEngine }: Props) {
     engineRef.current?.updateSettings(settings)
   }, [settings])
 
-  // Swap scene when the selection changes.
+  // Swap scene when the effective selection changes.
   useEffect(() => {
-    engineRef.current?.setScene(createScene(settings.activeSceneId))
+    engineRef.current?.setScene(createScene(effectiveSceneId))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.activeSceneId])
+  }, [effectiveSceneId])
+
+  // Drive the calibration reference scene's probe markers.
+  useEffect(() => {
+    if (calibrationState) engineRef.current?.setCalibrationState(calibrationState)
+  }, [calibrationState])
 
   return (
     <canvas
