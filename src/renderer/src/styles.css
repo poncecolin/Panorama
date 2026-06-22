@@ -501,6 +501,88 @@ body,
   cursor: default;
 }
 
+/* TV-calibration: the big move-here prompt shown on the laptop control screen. */
+.wizard-bigprompt {
+  font-size: 20px !important;
+  line-height: 1.5;
+  color: #e8ecf3 !important;
+}
+
+/* Static crosshair marking the physical screen center during TV calibration.
+   Pinned to the viewport center (= the TV's center); does not move with the viewer. */
+.calib-center-target {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+.calib-center-target::before,
+.calib-center-target::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.8);
+}
+/* horizontal arm */
+.calib-center-target::before {
+  width: 240px;
+  height: 2px;
+  transform: translate(-50%, -50%);
+}
+/* vertical arm */
+.calib-center-target::after {
+  width: 2px;
+  height: 240px;
+  transform: translate(-50%, -50%);
+}
+.calib-center-dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ff5a5a;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 8px rgba(0, 0, 0, 0.8);
+}
+.calib-center-label {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 22px);
+  transform: translateX(-50%);
+  color: #e8ecf3;
+  font-size: 15px;
+  white-space: nowrap;
+  text-shadow: 0 1px 4px #000;
+}
+
+/* Control surface (laptop) backdrop while the window shows on the TV. */
+.control-backdrop {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  color: #9aa3b2;
+  background: radial-gradient(circle at 50% 40%, #11192b, #05070d 70%);
+}
+
+.control-backdrop p {
+  font-size: 22px;
+  margin: 0;
+}
+
+.control-backdrop .control-backdrop-sub {
+  font-size: 14px;
+  opacity: 0.7;
+}
+
 .wizard-summary {
   font-size: 14px;
   line-height: 1.9;

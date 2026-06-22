@@ -1,4 +1,5 @@
 import { AppSettings } from '@shared/types'
+import { activeCalibration } from '@shared/settings'
 import { EngineStatus } from '../../engine/PanoramaEngine'
 
 interface Props {
@@ -14,6 +15,7 @@ const DEG = 180 / Math.PI
  */
 export function PosePanel({ status, settings }: Props) {
   const eye = status?.eyeMm ?? { x: 0, y: 0, z: 600 }
+  const screen = activeCalibration(settings).screen
   const hAngle = Math.atan2(eye.x, eye.z) * DEG
   const vAngle = Math.atan2(eye.y, eye.z) * DEG
   const dist = Math.sqrt(eye.x * eye.x + eye.y * eye.y + eye.z * eye.z)
@@ -34,13 +36,9 @@ export function PosePanel({ status, settings }: Props) {
       </div>
 
       <div className="dev-diagram-label">top-down (X / Z)</div>
-      <PlanDiagram
-        a={eye.x}
-        depth={eye.z}
-        halfSpan={settings.screen.widthMm / 2}
-      />
+      <PlanDiagram a={eye.x} depth={eye.z} halfSpan={screen.widthMm / 2} />
       <div className="dev-diagram-label">side (Y / Z)</div>
-      <PlanDiagram a={eye.y} depth={eye.z} halfSpan={settings.screen.heightMm / 2} />
+      <PlanDiagram a={eye.y} depth={eye.z} halfSpan={screen.heightMm / 2} />
     </div>
   )
 }

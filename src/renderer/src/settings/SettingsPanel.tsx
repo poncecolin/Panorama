@@ -1,8 +1,9 @@
-import { AppSettings } from '@shared/types'
+import { AppSettings, SettingsPatch } from '@shared/types'
+import { activeCalibration } from '@shared/settings'
 
 interface Props {
   settings: AppSettings
-  onUpdate: (patch: Partial<AppSettings>) => void
+  onUpdate: (patch: SettingsPatch) => void
   onClose: () => void
   onOpenCalibration: () => void
   onReset: () => void
@@ -16,6 +17,10 @@ export function SettingsPanel({
   onOpenCalibration,
   onReset
 }: Props) {
+  // Screen size and camera placement live on the active calibration profile
+  // (laptop vs TV); edits here patch that profile, not a top-level field.
+  const active = settings.activeProfile
+  const cal = activeCalibration(settings)
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal settings" onClick={(e) => e.stopPropagation()}>
@@ -35,16 +40,16 @@ export function SettingsPanel({
             </p>
             <Field
               label="Screen width (mm)"
-              value={settings.screen.widthMm}
+              value={cal.screen.widthMm}
               onChange={(v) =>
-                onUpdate({ screen: { ...settings.screen, widthMm: v } })
+                onUpdate({ profiles: { [active]: { screen: { ...cal.screen, widthMm: v } } } })
               }
             />
             <Field
               label="Screen height (mm)"
-              value={settings.screen.heightMm}
+              value={cal.screen.heightMm}
               onChange={(v) =>
-                onUpdate({ screen: { ...settings.screen, heightMm: v } })
+                onUpdate({ profiles: { [active]: { screen: { ...cal.screen, heightMm: v } } } })
               }
             />
             <Field
@@ -63,12 +68,16 @@ export function SettingsPanel({
             />
             <Field
               label="Camera height above screen center (mm)"
-              value={settings.placement.position.y}
+              value={cal.placement.position.y}
               onChange={(v) =>
                 onUpdate({
-                  placement: {
-                    ...settings.placement,
-                    position: { ...settings.placement.position, y: v }
+                  profiles: {
+                    [active]: {
+                      placement: {
+                        ...cal.placement,
+                        position: { ...cal.placement.position, y: v }
+                      }
+                    }
                   }
                 })
               }

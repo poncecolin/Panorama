@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { AppSettings, DEFAULTS } from '@shared/types'
+import { AppSettings, DEFAULTS, SettingsPatch } from '@shared/types'
 import { screenMmFromDiagonal, fovFromObservation } from '@shared/calibration'
 import { TrackerFrame } from '@core/tracker/types'
 import { hasBridge } from '../state/useSettings'
 
 interface Props {
   settings: AppSettings
-  onUpdate: (patch: Partial<AppSettings>) => void
+  onUpdate: (patch: SettingsPatch) => void
   onClose: () => void
   getFrame: () => TrackerFrame | null
 }
@@ -17,9 +17,11 @@ export function CalibrationWizard({ settings, onUpdate, onClose, getFrame }: Pro
   const [step, setStep] = useState(0)
   const [aspect, setAspect] = useState({ w: 16, h: 10 })
 
-  // Seed the diagonal from any existing screen size.
+  // This wizard calibrates the built-in laptop setup. Seed the diagonal from its
+  // existing screen size.
+  const laptop = settings.profiles.laptop
   const seededDiag =
-    Math.hypot(settings.screen.widthMm, settings.screen.heightMm) / 25.4
+    Math.hypot(laptop.screen.widthMm, laptop.screen.heightMm) / 25.4
   const [diagonalIn, setDiagonalIn] = useState(seededDiag.toFixed(1))
   const [ipdMm, setIpdMm] = useState(settings.viewer.ipdMm)
   const [distanceCm, setDistanceCm] = useState(60)
@@ -74,22 +76,27 @@ export function CalibrationWizard({ settings, onUpdate, onClose, getFrame }: Pro
   const finish = () => {
     const heightMm = screen.heightMm
     onUpdate({
-      screen,
       viewer: { ipdMm },
       intrinsics: {
         ...settings.intrinsics,
         horizontalFovDeg: capturedFov ?? settings.intrinsics.horizontalFovDeg
       },
-      // Keep the "camera just above the top edge" assumption consistent with the
-      // newly measured screen height.
-      placement: {
-        ...settings.placement,
-        position: {
-          x: 0,
-          y: heightMm / 2 + DEFAULTS.cameraAboveTopEdgeMm,
-          z: 0
+      profiles: {
+        laptop: {
+          screen,
+          // Keep the "camera just above the top edge" assumption consistent with
+          // the newly measured screen height.
+          placement: {
+            ...laptop.placement,
+            position: {
+              x: 0,
+              y: heightMm / 2 + DEFAULTS.cameraAboveTopEdgeMm,
+              z: 0
+            }
+          }
         }
       },
+      activeProfile: 'laptop',
       calibrated: true
     })
     onClose()

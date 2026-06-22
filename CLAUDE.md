@@ -8,8 +8,10 @@ Panorama turns a screen into a simulated glass **window**. The laptop camera tra
 viewer's eyes in 3D, and an animated scene is rendered through an **off-axis
 (asymmetric-frustum) projection** so the view shifts with the viewer's position, exactly
 like looking through real glass ("fish-tank VR"). Phase 1 (a standalone laptop with its
-built-in camera) is complete and on-device validated; Phase 2 (external TV over HDMI) and
-Phase 3 (alternative renderer/engine) are designed but not built.
+built-in camera) is complete and on-device validated. Phase 2 (external TV over HDMI) has
+its **foundation built** — calibration profiles, dual-window surfaces, cross-window IPC,
+and a probe-based TV calibration wizard — pending on-device validation on a real TV.
+Phase 3 (alternative renderer/engine) is designed but not built.
 
 `docs/STATUS.md` is the living status doc — read it for current state, known bugs, and the
 Phase 2/3 roadmap, and keep it updated as work lands.
@@ -119,10 +121,31 @@ aren't jarring.
 - **Dev panels:** toggle with **D** — Camera, Pose, Perf, Tuning (live sliders for all
   `TuningParams`). Settings/calibration: 5-step wizard sets the `calibrated` flag; pure math in
   `src/shared/calibration.ts`.
+- **TV mode (Phase 2).** Settings hold `profiles.{laptop,tv}` (each `CameraPlacement` +
+  `ScreenGeometry`) + `activeProfile`; the engine renders through the active profile, and
+  legacy single-`placement` saves migrate into `profiles.laptop`. Patches use `SettingsPatch`
+  (partial-profile aware). The renderer loads into one of three **surfaces** (`shared/types`
+  `Surface`): `solo` (laptop: engine + overlays), `scene` (TV: fullscreen engine only — forced
+  by `?surface=scene`), `control` (laptop: wizard + overlays, no engine — derived when the TV
+  profile is active). Electron main opens/closes the scene window per mode and relays
+  cross-window IPC: `settings:changed` (sync, so fine-tune previews live on the TV),
+  `engine:status` (scene→control stream), `scene:command` (drives the `calib` scene). The TV
+  **calibration math is pure**: `cameraModel.ts` (shared camera↔screen mapping, used by both the
+  solver and the calibrator so they can't drift) + `tvCalibration.ts`. After on-device testing
+  the wizard (`settings/TvCalibrationWizard.tsx`) **measures** TV size + camera below/forward
+  (inches) and **solves only the camera tilt** via `solvePitchFromCenteredCaptures` (camera-frame
+  `y`-vs-`z` slope = `tan(pitch)` from easy near/step-back captures — edge-graze probes were too
+  hard to reach on a big TV). `solvePlacement` (damped Gauss–Newton over a configurable `free`
+  DoF set, from edge-graze observations) stays for future arbitrary placement. Reference scene:
+  `scenes/calib/CalibScene.ts` (static, non-animated markers — calibration needs a stable edge).
+  **Distance tracking:** TV mode captures at 1280×720 with looser MediaPipe floors (0.3) and
+  derives the geometry aspect from the actual stream; laptop mode keeps the validated 640×480.
 
 ## Layout
 
-`src/main` (Electron main: window/display, fullscreen) · `src/preload` · `src/renderer/src`
-(React UI, engine, dev panels, settings) · `src/core/{tracker,geometry,render}` · `src/scenes`
-(scene content; `lib/` = `SceneBase` + shared texture/drift/math helpers) · `src/shared`
-(types, settings, calibration, IPC) · `config/aliases.ts` (shared import aliases).
+`src/main` (Electron main: window/display, dual-window mode, IPC relay) · `src/preload` ·
+`src/renderer/src` (React UI, engine, dev panels, settings + TV wizard) ·
+`src/core/{tracker,geometry,render}` (geometry incl. `cameraModel.ts`, `tvCalibration.ts`) ·
+`src/scenes` (scene content; `lib/` = `SceneBase` + shared helpers; `calib/` = calibration
+reference scene) · `src/shared` (types, settings, calibration, IPC) · `config/aliases.ts`
+(shared import aliases).

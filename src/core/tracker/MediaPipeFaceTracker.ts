@@ -20,6 +20,13 @@ export interface MediaPipeTrackerOptions {
   width?: number
   height?: number
   /**
+   * MediaPipe detection/tracking confidence floors. Lower = detects smaller / dimmer
+   * faces (helps at TV / across-the-room distance) at the cost of more false starts.
+   */
+  minDetectionConfidence?: number
+  minPresenceConfidence?: number
+  minTrackingConfidence?: number
+  /**
    * Camera source seam. Defaults to navigator.mediaDevices.getUserMedia. Override
    * to inject a stream (tests, or Phase 2 alternate/networked camera sources).
    */
@@ -34,7 +41,11 @@ const DEFAULTS = {
   numFaces: 3,
   targetFps: 30,
   width: 640,
-  height: 480
+  height: 480,
+  // Defaults match MediaPipe's own (0.5); TV mode lowers these for distant faces.
+  minDetectionConfidence: 0.5,
+  minPresenceConfidence: 0.5,
+  minTrackingConfidence: 0.5
 }
 
 // Iris center indices in the 478-point FaceLandmarker mesh.
@@ -78,7 +89,10 @@ export class MediaPipeFaceTracker implements ViewerTracker {
       numFaces: options.numFaces ?? DEFAULTS.numFaces,
       targetFps: options.targetFps ?? DEFAULTS.targetFps,
       width: options.width ?? DEFAULTS.width,
-      height: options.height ?? DEFAULTS.height
+      height: options.height ?? DEFAULTS.height,
+      minDetectionConfidence: options.minDetectionConfidence ?? DEFAULTS.minDetectionConfidence,
+      minPresenceConfidence: options.minPresenceConfidence ?? DEFAULTS.minPresenceConfidence,
+      minTrackingConfidence: options.minTrackingConfidence ?? DEFAULTS.minTrackingConfidence
     }
     this.lock = new FirstPersonLock(options.lockConfig)
     this.getStream =
@@ -100,6 +114,14 @@ export class MediaPipeFaceTracker implements ViewerTracker {
 
   getVideoElement(): HTMLVideoElement | null {
     return this.video
+  }
+
+  /** Actual capture dimensions (px) once the stream is live, else null. */
+  getVideoSize(): { width: number; height: number } | null {
+    if (this.video && this.video.videoWidth > 0) {
+      return { width: this.video.videoWidth, height: this.video.videoHeight }
+    }
+    return null
   }
 
   onFrame(cb: TrackerFrameCallback): () => void {
@@ -124,6 +146,9 @@ export class MediaPipeFaceTracker implements ViewerTracker {
         baseOptions: { modelAssetPath, delegate },
         runningMode: 'VIDEO',
         numFaces: this.opts.numFaces,
+        minFaceDetectionConfidence: this.opts.minDetectionConfidence,
+        minFacePresenceConfidence: this.opts.minPresenceConfidence,
+        minTrackingConfidence: this.opts.minTrackingConfidence,
         // Blendshapes give a per-eye blink score; the transformation matrix gives
         // 6DoF head pose (we read yaw). Both feed the confidence/robustness path.
         outputFaceBlendshapes: true,

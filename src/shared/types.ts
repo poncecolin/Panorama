@@ -80,9 +80,57 @@ export interface ScreenGeometry {
   heightMm: number
 }
 
+/** Which calibration profile is active. Phase 2 ships two; the map can grow. */
+export type ProfileKey = 'laptop' | 'tv'
+
+/**
+ * One calibrated setup: how big the glass is and where the camera sits relative
+ * to it. Phase 1 only ever used the built-in laptop setup; Phase 2 adds a TV
+ * setup where the camera (still the laptop's) is offset from the display. The
+ * pair (placement + screen) is exactly what the GeometrySolver needs. Kept as a
+ * standalone profile so more profiles (per-display, arbitrary placement) can be
+ * added later without reshaping the solver or the engine.
+ */
+export interface CalibrationProfile {
+  placement: CameraPlacement
+  screen: ScreenGeometry
+  /** Electron display id this profile drives (TV mode). Informational only. */
+  displayId?: number | null
+}
+
 /** Average human interpupillary distance assumptions (millimetres). */
 export interface ViewerCalibration {
   ipdMm: number
+}
+
+/** A screen edge a calibration probe marker can be tangent to. */
+export type ScreenEdge = 'left' | 'right' | 'top' | 'bottom'
+
+/**
+ * A calibration probe: a marker placed behind the glass that grazes `edge` at a
+ * known eye plane. Screen-space mm (z < 0 = behind the glass). Plain data so it
+ * can be sent to the reference scene and across the window boundary (Phase 2).
+ */
+export interface ProbeMarker {
+  id: string
+  position: Vec3
+  edge: ScreenEdge
+  /** Marker color hint (hex), e.g. 0xff3b3b for the classic "red cube". */
+  color?: number
+}
+
+/** What the calibration reference scene should currently display. */
+export interface CalibrationSceneState {
+  /** Show the center symmetry grid (the head-on alignment cue). */
+  showGrid: boolean
+  /** Active probe markers for the current wizard step. */
+  markers: ProbeMarker[]
+  /**
+   * Show a STATIC 2D crosshair at the exact physical center of the screen (a flat
+   * overlay that does NOT move with the viewer), so the user can tape-measure from
+   * screen center to the camera during the "camera position" step.
+   */
+  showCenterTarget?: boolean
 }
 
 /** Defaults that make the illusion work with zero setup. */
@@ -95,7 +143,17 @@ export const DEFAULTS = {
   /** Camera assumed centered this far above the top edge of the screen (mm). */
   cameraAboveTopEdgeMm: 8,
   nearPlaneMm: 50,
-  farPlaneMm: 100000
+  farPlaneMm: 100000,
+  /**
+   * Seed values for a fresh "TV mode" profile (Phase 2), refined by the TV
+   * calibration wizard. A 55" 16:9 set with the laptop sitting below it: camera
+   * ~350 mm below the TV center and ~100 mm forward of the screen plane.
+   */
+  tvDiagonalInches: 55,
+  tvAspectW: 16,
+  tvAspectH: 9,
+  tvCameraBelowCenterMm: 350,
+  tvCameraForwardMm: 100
 } as const
 
 /**
@@ -161,6 +219,19 @@ export interface TuningParams {
   lowConfMinCutoff: number
   /** Implied eye speed (mm/s) above which a sample is treated as an outlier. */
   jumpGateMmPerSec: number
+  /**
+   * Window (samples) of the median pre-filter on the inter-eye distance, which
+   * drives depth. Depth-from-IPD is the noisiest signal; a small median rejects the
+   * per-frame spikes that cause close-up "looming" jitter. 1 disables it.
+   */
+  depthMedianWindow: number
+  /**
+   * Eye distance (mm) below which smoothing ramps up. The off-axis frustum is far
+   * more sensitive up close (a few mm of eye motion = a big projection change), so
+   * we smooth harder when the viewer is near. At/above this distance there's no
+   * extra smoothing; closer than it, the One Euro cutoff is scaled down.
+   */
+  closeSmoothingRefMm: number
 }
 
 export const DEFAULT_TUNING: TuningParams = {
@@ -176,21 +247,41 @@ export const DEFAULT_TUNING: TuningParams = {
   yawCosFloor: 0.5, // allow depth correction out to ~60° of yaw
   confidenceFreeze: 0.35,
   lowConfMinCutoff: 0.3,
-  jumpGateMmPerSec: 4000 // well above human head speed; only true teleports trip it
+  jumpGateMmPerSec: 4000, // well above human head speed; only true teleports trip it
+  depthMedianWindow: 5,
+  closeSmoothingRefMm: 700
 }
 
 /** Everything persisted to disk via electron-store. */
 export interface AppSettings {
+  /** The physical camera lens — the same in every mode (it's one laptop camera). */
   intrinsics: CameraIntrinsics
-  placement: CameraPlacement
-  screen: ScreenGeometry
+  /** Viewer IPD — independent of which display is driven. */
   viewer: ViewerCalibration
   tuning: TuningParams
+  /** Calibrated setups, keyed by mode. The engine reads the active one. */
+  profiles: Record<ProfileKey, CalibrationProfile>
+  /** Which profile is live ('laptop' built-in vs 'tv' over HDMI). Manual switch. */
+  activeProfile: ProfileKey
   activeSceneId: string
   audioEnabled: boolean
   audioVolume: number
   /** Whether the optional calibration wizard has been completed. */
   calibrated: boolean
+}
+
+/**
+ * A partial update to AppSettings. Unlike `Partial<AppSettings>`, this allows a
+ * *partial* profile patch (e.g. nudging just the TV placement) and tolerates the
+ * legacy top-level `placement`/`screen` keys a Phase-1 store may still hold, so
+ * `mergeSettings` can migrate them. Nested objects are merged one level deep.
+ */
+export type SettingsPatch = Partial<Omit<AppSettings, 'profiles'>> & {
+  profiles?: Partial<Record<ProfileKey, Partial<CalibrationProfile>>>
+  /** @deprecated Phase-1 top-level fields, folded into `profiles.laptop` on merge. */
+  placement?: CameraPlacement
+  /** @deprecated Phase-1 top-level fields, folded into `profiles.laptop` on merge. */
+  screen?: ScreenGeometry
 }
 
 /** Camera/display facts the main process can detect from the OS. */
@@ -203,3 +294,48 @@ export interface DisplayInfo {
   height: number
   scaleFactor: number
 }
+
+/** One connected display, for the TV-mode display picker (Phase 2). */
+export interface DisplayDescriptor {
+  /** Electron display id (stable for the session). */
+  id: number
+  /** The built-in laptop panel (where available). */
+  internal: boolean
+  primary: boolean
+  /** Human label, e.g. "External · 3840×2160". */
+  label: string
+  width: number
+  height: number
+}
+
+/**
+ * The window the engine renders into. In TV mode the engine lives in the `scene`
+ * window (fullscreen on the TV) and the `control` window (laptop) drives it; in
+ * laptop mode a single `solo` window does both.
+ */
+export type Surface = 'solo' | 'scene' | 'control'
+
+/**
+ * A serializable slice of EngineStatus streamed from the scene window to the
+ * control window (Phase 2). Omits the heavy per-frame face data; keeps the locked
+ * viewer's sample so the control window's calibrator/pose panel can work.
+ */
+export interface EngineStatusMsg {
+  state: TrackingState
+  blend: number
+  eyeMm: Vec3
+  renderFps: number
+  slowFrames: number
+  cameraError: string | null
+  sample: ViewerSample | null
+  detectFps: number
+  /** Locked face's box width as a % of frame width (0 = none). Tracking-quality cue. */
+  faceSizePct: number
+  /** Std-dev (mm) of the solved depth over recent frames — close-up jitter readout. */
+  depthJitterMm: number
+}
+
+/** Transient command sent control → scene to drive the calibration reference scene. */
+export type SceneCommand =
+  | { type: 'calibration'; state: CalibrationSceneState }
+  | { type: 'exitCalibration' }

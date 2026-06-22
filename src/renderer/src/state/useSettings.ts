@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AppSettings } from '@shared/types'
+import { AppSettings, SettingsPatch } from '@shared/types'
 import { makeDefaultSettings, mergeSettings } from '@shared/settings'
 
 /** True when running inside Electron with the preload bridge available. */
@@ -25,12 +25,19 @@ export function useSettings() {
       }
     }
     load()
+    // Stay in sync when another window (e.g. the control surface) changes settings.
+    const unsub = hasBridge
+      ? window.panorama.onSettingsChanged((s) => {
+          if (!cancelled) setSettings(s)
+        })
+      : undefined
     return () => {
       cancelled = true
+      unsub?.()
     }
   }, [])
 
-  const update = useCallback(async (patch: Partial<AppSettings>) => {
+  const update = useCallback(async (patch: SettingsPatch) => {
     if (hasBridge) {
       const merged = await window.panorama.setSettings(patch)
       setSettings(merged)

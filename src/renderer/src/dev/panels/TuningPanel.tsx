@@ -68,6 +68,24 @@ export function TuningPanel({ tuning, onChange, onReset }: Props) {
           value={tuning.oneEuroBeta}
           onChange={(v) => onChange({ oneEuroBeta: v })}
         />
+        <Slider
+          label="depth median window"
+          hint="samples median-filtered to steady the depth (1 = off; rejects close-up jitter)"
+          min={1}
+          max={11}
+          step={2}
+          value={tuning.depthMedianWindow}
+          onChange={(v) => onChange({ depthMedianWindow: v })}
+        />
+        <Slider
+          label="close smoothing ref (mm)"
+          hint="smooth harder when nearer than this (the frustum is twitchier up close)"
+          min={1}
+          max={2000}
+          step={50}
+          value={tuning.closeSmoothingRefMm}
+          onChange={(v) => onChange({ closeSmoothingRefMm: v })}
+        />
       </Group>
 
       <Group label="Tracking robustness">
