@@ -39,7 +39,7 @@ exactly like looking through real glass.
 - Electron app: `npm run dev` (needs Node on PATH: `C:\Program Files\nodejs`).
 - Browser-only UI iteration: `npm run dev:web` (port 5180). Camera is blocked in the
   headless preview, so it shows attract mode — that's expected.
-- Unit tests: `npm test` (59 passing). Typecheck: `npm run typecheck`.
+- Unit tests: `npm test` (64 passing). Typecheck: `npm run typecheck`.
 - Self-test harnesses (browser): `/?selftest=tracker` (MediaPipe init),
   `/?selftest=track-live` (full pipeline via a synthetic camera),
   `/?selftest=render` (illusion check; `window.panoramaSetEye(x,y,z)` to move the eye).
@@ -118,6 +118,15 @@ exactly like looking through real glass.
   *actual* stream size, and loosens MediaPipe's detection floors to 0.3. These are scoped to
   TV mode so the proven laptop path is untouched. Heavier work (digital-zoom ROI on the
   locked face, a body-pose fallback) is deferred.
+- **Close-up jitter + tracking instrumentation (Step 0/1 of the tracking plan).** The
+  worst close-up noise was depth-from-IPD: tiny per-frame inter-eye wobble swings Z, and
+  the off-axis frustum is hyper-sensitive up close. Fixes: a **median pre-filter** on the
+  inter-eye distance (`tuning.depthMedianWindow`) rejects depth spikes, and
+  **distance-adaptive smoothing** (`tuning.closeSmoothingRefMm`) lowers the One Euro cutoff
+  when the viewer is near. The dev **Perf** panel now reports **face size (% of frame)** and
+  **depth jitter (mm)** so tracking quality is measurable at each distance (these stream to
+  the control window in TV mode). Next on the tracking roadmap: 1080p + **digital-zoom ROI**
+  for couch-distance loss, then a body-pose fallback.
 
 ---
 

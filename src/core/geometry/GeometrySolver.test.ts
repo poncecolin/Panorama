@@ -29,7 +29,11 @@ function makeConfig(overrides: Partial<GeometryConfig> = {}): GeometryConfig {
       yawCosFloor: 0.5,
       confidenceFreeze: 0.35,
       lowConfMinCutoff: 0.3,
-      jumpGateMmPerSec: 4000
+      jumpGateMmPerSec: 4000,
+      // Off by default so existing assertions test the core math; the depth-median
+      // and distance-adaptive-smoothing behaviors get their own tests below.
+      depthMedianWindow: 1,
+      closeSmoothingRefMm: 1
     },
     ...overrides
   }
@@ -198,5 +202,59 @@ describe('GeometrySolver tracking robustness', () => {
     // A modest move over a normal frame interval should be followed, not frozen.
     const moved = s.solve(sample({ timestamp: 33, eyeCenter: { x: 0.45, y: 0.5 } }))
     expect(moved.eyeMm.x).toBeGreaterThan(0)
+  })
+})
+
+describe('GeometrySolver close-up stability', () => {
+  // Near-passthrough filter so we observe the median pre-filter, not One Euro.
+  const passthrough = { oneEuroMinCutoff: 100, oneEuroBeta: 0 }
+
+  it('median pre-filter rejects an in-gate depth spike', () => {
+    const cfgMedian = makeConfig({
+      tuning: { ...makeConfig().tuning, ...passthrough, depthMedianWindow: 5 }
+    })
+    const cfgOff = makeConfig({
+      tuning: { ...makeConfig().tuning, ...passthrough, depthMedianWindow: 1 }
+    })
+    const sMed = new GeometrySolver(cfgMedian)
+    const sOff = new GeometrySolver(cfgOff)
+
+    // Four steady frames at 600 mm, then a single frame that reads ~680 mm — a
+    // plausible (within the jump gate) but spurious depth spike.
+    const steady = interEyeForDepth(600)
+    const spike = interEyeForDepth(680)
+    let med = 0
+    let off = 0
+    for (let i = 0; i < 4; i++) {
+      sMed.solve(sample({ timestamp: i * 33, interEyeNorm: steady }))
+      sOff.solve(sample({ timestamp: i * 33, interEyeNorm: steady }))
+    }
+    med = sMed.solve(sample({ timestamp: 4 * 33, interEyeNorm: spike })).eyeMm.z
+    off = sOff.solve(sample({ timestamp: 4 * 33, interEyeNorm: spike })).eyeMm.z
+
+    expect(med).toBeCloseTo(600, 0) // median holds the depth steady
+    expect(off).toBeGreaterThan(650) // unfiltered follows the spike
+  })
+
+  it('distance-adaptive smoothing damps motion more when the viewer is close', () => {
+    // Close viewer (~350 mm): one config smooths harder near the screen, one doesn't.
+    const heavy = new GeometrySolver(
+      makeConfig({ tuning: { ...makeConfig().tuning, closeSmoothingRefMm: 2000 } })
+    )
+    const light = new GeometrySolver(
+      makeConfig({ tuning: { ...makeConfig().tuning, closeSmoothingRefMm: 1 } })
+    )
+    const near = interEyeForDepth(350)
+    heavy.solve(sample({ timestamp: 0, eyeCenter: { x: 0.5, y: 0.5 }, interEyeNorm: near }))
+    light.solve(sample({ timestamp: 0, eyeCenter: { x: 0.5, y: 0.5 }, interEyeNorm: near }))
+    const h = heavy.solve(
+      sample({ timestamp: 33, eyeCenter: { x: 0.4, y: 0.5 }, interEyeNorm: near })
+    )
+    const l = light.solve(
+      sample({ timestamp: 33, eyeCenter: { x: 0.4, y: 0.5 }, interEyeNorm: near })
+    )
+    // Both move the same direction; the heavily-smoothed one lags behind.
+    expect(h.eyeMm.x).toBeGreaterThan(0)
+    expect(h.eyeMm.x).toBeLessThan(l.eyeMm.x)
   })
 })

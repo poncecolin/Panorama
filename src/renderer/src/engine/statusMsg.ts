@@ -18,7 +18,9 @@ export function toStatusMsg(s: EngineStatus): EngineStatusMsg {
     slowFrames: s.slowFrames,
     cameraError: s.cameraError,
     sample: s.frame?.sample ?? null,
-    detectFps: s.frame?.detectFps ?? 0
+    detectFps: s.frame?.detectFps ?? 0,
+    faceSizePct: s.faceSizePct,
+    depthJitterMm: s.depthJitterMm
   }
 }
 
@@ -31,6 +33,8 @@ export function fromStatusMsg(m: EngineStatusMsg): EngineStatus {
     renderFps: m.renderFps,
     slowFrames: m.slowFrames,
     cameraError: m.cameraError,
+    faceSizePct: m.faceSizePct,
+    depthJitterMm: m.depthJitterMm,
     frame: m.sample
       ? {
           sample: m.sample,

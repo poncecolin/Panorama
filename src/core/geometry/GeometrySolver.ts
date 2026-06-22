@@ -41,6 +41,8 @@ export class GeometrySolver {
   private lastTs: number | null = null
   /** Consecutive frames the outlier gate has rejected (escape hatch counter). */
   private outlierFrames = 0
+  /** Recent inter-eye distances, for the depth-stabilizing median pre-filter. */
+  private interEyeBuf: number[] = []
 
   constructor(config: GeometryConfig) {
     this.config = config
@@ -60,6 +62,16 @@ export class GeometrySolver {
     this.lastEye = null
     this.lastTs = null
     this.outlierFrames = 0
+    this.interEyeBuf = []
+  }
+
+  /** Median of the last `window` inter-eye distances — rejects depth spikes. */
+  private medianInterEye(value: number, window: number): number {
+    if (window <= 1) return value
+    this.interEyeBuf.push(value)
+    if (this.interEyeBuf.length > window) this.interEyeBuf.shift()
+    const sorted = [...this.interEyeBuf].sort((a, b) => a - b)
+    return sorted[Math.floor(sorted.length / 2)]
   }
 
   /** Metric eye position from a sample, BEFORE smoothing (deterministic; tested). */
@@ -82,7 +94,10 @@ export class GeometrySolver {
    *  drops by lowering the One Euro min-cutoff for that frame. */
   solve(sample: ViewerSample): EyePose {
     const { screen, tuning } = this.config
-    const raw = this.rawEye(sample)
+    // Stabilize depth first: median-filter the inter-eye distance (its per-frame
+    // spikes are the main source of close-up "looming" jitter) before geometry.
+    const stableInterEye = this.medianInterEye(sample.interEyeNorm, tuning.depthMedianWindow)
+    const raw = this.rawEye({ ...sample, interEyeNorm: stableInterEye })
     const tSec = sample.timestamp / 1000
 
     let eye: Vec3
@@ -111,9 +126,13 @@ export class GeometrySolver {
         // Accept: normal tracking, or an outlier that persisted long enough to be
         // believed. conf 1 → configured cutoff (unchanged); conf 0 → cautious cutoff.
         this.outlierFrames = 0
-        const minCutoff =
+        const confCutoff =
           tuning.lowConfMinCutoff + conf * (tuning.oneEuroMinCutoff - tuning.lowConfMinCutoff)
-        eye = this.filter.filter(raw, tSec, minCutoff)
+        // Distance-adaptive: the frustum is far more sensitive up close, so smooth
+        // harder (lower cutoff) when the eye is near, easing back to full
+        // responsiveness at/beyond closeSmoothingRefMm.
+        const distScale = clamp(raw.z / tuning.closeSmoothingRefMm, 0.35, 1)
+        eye = this.filter.filter(raw, tSec, confCutoff * distScale)
         this.lastEye = eye
       }
       this.lastTs = tSec
@@ -155,6 +174,7 @@ export class GeometrySolver {
 }
 
 const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x)
+const clamp = (x: number, lo: number, hi: number): number => (x < lo ? lo : x > hi ? hi : x)
 
 /** Euclidean distance between two points (mm). */
 function dist(a: Vec3, b: Vec3): number {

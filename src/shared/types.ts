@@ -219,6 +219,19 @@ export interface TuningParams {
   lowConfMinCutoff: number
   /** Implied eye speed (mm/s) above which a sample is treated as an outlier. */
   jumpGateMmPerSec: number
+  /**
+   * Window (samples) of the median pre-filter on the inter-eye distance, which
+   * drives depth. Depth-from-IPD is the noisiest signal; a small median rejects the
+   * per-frame spikes that cause close-up "looming" jitter. 1 disables it.
+   */
+  depthMedianWindow: number
+  /**
+   * Eye distance (mm) below which smoothing ramps up. The off-axis frustum is far
+   * more sensitive up close (a few mm of eye motion = a big projection change), so
+   * we smooth harder when the viewer is near. At/above this distance there's no
+   * extra smoothing; closer than it, the One Euro cutoff is scaled down.
+   */
+  closeSmoothingRefMm: number
 }
 
 export const DEFAULT_TUNING: TuningParams = {
@@ -234,7 +247,9 @@ export const DEFAULT_TUNING: TuningParams = {
   yawCosFloor: 0.5, // allow depth correction out to ~60° of yaw
   confidenceFreeze: 0.35,
   lowConfMinCutoff: 0.3,
-  jumpGateMmPerSec: 4000 // well above human head speed; only true teleports trip it
+  jumpGateMmPerSec: 4000, // well above human head speed; only true teleports trip it
+  depthMedianWindow: 5,
+  closeSmoothingRefMm: 700
 }
 
 /** Everything persisted to disk via electron-store. */
@@ -314,6 +329,10 @@ export interface EngineStatusMsg {
   cameraError: string | null
   sample: ViewerSample | null
   detectFps: number
+  /** Locked face's box width as a % of frame width (0 = none). Tracking-quality cue. */
+  faceSizePct: number
+  /** Std-dev (mm) of the solved depth over recent frames — close-up jitter readout. */
+  depthJitterMm: number
 }
 
 /** Transient command sent control → scene to drive the calibration reference scene. */

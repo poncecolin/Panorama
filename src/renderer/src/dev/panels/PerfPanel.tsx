@@ -72,6 +72,14 @@ export function PerfPanel({ status }: Props) {
         <Row k="detect time" v={f ? `${detectMs.toFixed(1)} ms` : '—'} />
         <Row k="est. latency" v={f ? `${latency.toFixed(0)} ms` : '—'} />
         <Row k="faces" v={f ? String(f.faces.length) : '—'} />
+        <Row
+          k="face size"
+          v={status && status.faceSizePct > 0 ? `${status.faceSizePct.toFixed(1)}% of width` : '—'}
+        />
+        <Row
+          k="depth jitter"
+          v={status ? `±${status.depthJitterMm.toFixed(1)} mm` : '—'}
+        />
         <Row k="render hitches" v={String(status?.slowFrames ?? 0)} />
       </div>
       <p className="dev-note">

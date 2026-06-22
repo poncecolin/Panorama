@@ -18,6 +18,10 @@ export interface EngineStatus {
   /** Count of frames slower than ~30 fps (>33 ms) since start — render hitches. */
   slowFrames: number
   cameraError: string | null
+  /** Locked face's box width as a % of frame width (0 = none). Tracking-quality cue. */
+  faceSizePct: number
+  /** Std-dev (mm) of the solved depth over recent frames — close-up jitter readout. */
+  depthJitterMm: number
 }
 
 export type StatusCallback = (s: EngineStatus) => void
@@ -35,6 +39,13 @@ function lerp(a: Vec3, b: Vec3, t: number): Vec3 {
 
 function dist(a: Vec3, b: Vec3): number {
   return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z)
+}
+
+function stdDev(xs: number[]): number {
+  if (xs.length < 2) return 0
+  const mean = xs.reduce((s, v) => s + v, 0) / xs.length
+  const variance = xs.reduce((s, v) => s + (v - mean) * (v - mean), 0) / xs.length
+  return Math.sqrt(variance)
 }
 
 function toGeometryConfig(s: AppSettings): GeometryConfig {
@@ -66,6 +77,10 @@ export class PanoramaEngine {
   /** Latest solved eye (the raw follow target). */
   /** Actual capture dimensions, used to keep the geometry aspect ratio correct. */
   private videoSize: { width: number; height: number } | null = null
+  /** Tracking-quality instrumentation (surfaced in the dev Perf panel). */
+  private faceSizePct = 0
+  private depthJitterMm = 0
+  private zHistory: number[] = []
   private targetEye: Vec3 | null = null
   /** Eye actually shown — eased toward targetEye; glides (not snaps) on re-acquire. */
   private displayEye: Vec3 | null = null
@@ -197,9 +212,19 @@ export class PanoramaEngine {
 
   private onTrackerFrame(f: TrackerFrame): void {
     this.latestFrame = f
+
+    // Tracking-quality metrics: how big the locked face is (detection headroom)
+    // and how much the solved depth is jittering (close-up noise).
+    const locked = f.faces.find((fc) => fc.locked)
+    this.faceSizePct = locked ? locked.box.width * 100 : 0
+
     if (f.sample) {
       const pose = this.solver.solve(f.sample)
       const now = performance.now()
+
+      this.zHistory.push(pose.eyeMm.z)
+      if (this.zHistory.length > 30) this.zHistory.shift()
+      this.depthJitterMm = stdDev(this.zHistory)
       // If the viewer was gone long enough to count as a real loss (vs. a blink),
       // glide back to the new position instead of snapping — they may have moved
       // while turned away, and a teleport on return breaks the illusion.
@@ -283,7 +308,9 @@ export class PanoramaEngine {
       frame: this.latestFrame,
       renderFps: this.renderFps,
       slowFrames: this.slowFrames,
-      cameraError: this.cameraError
+      cameraError: this.cameraError,
+      faceSizePct: this.faceSizePct,
+      depthJitterMm: this.depthJitterMm
     }
     this.callbacks.forEach((cb) => cb(status))
   }
